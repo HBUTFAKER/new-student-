@@ -1,0 +1,14 @@
+# WorkBuddy 项目数据（不属于仓库）
+.workbuddy/
+
+# 临时文件
+doc_content.txt
+*.log
+.DS_Store
+Thumbs.db
+
+# 环境与依赖（后续阶段会用到）
+node_modules/
+__pycache__/
+.env
+.venv/
