@@ -3,14 +3,14 @@
 > 对应《学生信息管理系统_分步执行清单》步骤 0.4。
 > 技术栈：PostgreSQL + SQLAlchemy + Alembic。命名 snake_case、表名单数。
 > 配套字段字典：`04-data-dictionary.md`（外键/字段与本文一一对应）。
-> 三层共 25 张表：平台层 4、微信层 3、业务层 18。
+> 三层共 24 张表：平台层 4、微信层 3、业务层 17。
 
 ## 全局约定（所有图通用）
 
 - 主键统一 `id UUID PK`，默认 `gen_random_uuid()`。
 - **业务层每张表必含 `tenant_id UUID NOT NULL FK→tenant.id`**，复合索引一律从 `tenant_id` 起（对应 0.3 决策 1）。
 - 平台层不强制 `tenant_id`（`tenant` 表自身除外）；微信层 `subscribe_auth` 带 `tenant_id`。
-- 课时流水 `lesson_ledger` 为**只增**设计：无 `updated_at`、无可变余额列，余额 = `SUM(delta)`（红线二）。
+- 课时流水 `lesson_ledger` 为**只增**设计：无 `updated_at`、无可变余额列，余额 = `SUM(delta)`（红线二）。**一期余额一律实时 SUM(delta) 计算，不引入快照表；快照表留到有性能需要时再引入**（本版已移除 balance_snapshot）。
 - 签到 `attendance` 对 `(lesson_id, student_id)` 建唯一约束 = 幂等键（红线三）。
 
 ---
@@ -86,7 +86,7 @@ erDiagram
 
 > `wechat_openid` 唯一约束 `(app_id, openid)`；`subscribe_auth` 为二期消息触达预留（US-006/403）。
 
-## 三、业务层（18 张，每张含 tenant_id）
+## 三、业务层（17 张，每张含 tenant_id）
 
 ```mermaid
 erDiagram
@@ -111,8 +111,7 @@ erDiagram
     student ||--o{ purchase : "购课"
     student ||--o{ lesson_ledger : "记账"
     purchase ||--o{ lesson_ledger : "来源"
-    student ||--o{ balance_snapshot : "余额快照"
-    course_package ||--o{ balance_snapshot : "按包"
+    lesson ||--o{ lesson_ledger : "消耗对应课次"
 
     class ||--o{ schedule_rule : "规律排课"
     classroom ||--o{ schedule_rule : "占用"
@@ -204,20 +203,13 @@ erDiagram
         UUID id PK
         UUID tenant_id FK
         UUID student_id FK
-        UUID purchase_id FK "可空"
+        UUID purchase_id FK "consume 必填 其余可空"
+        UUID lesson_id FK "consume 必填 其余可空"
         VARCHAR type "purchase/consume/refund/adjust/transfer"
         INT delta "正=增 负=减 只增不改"
         VARCHAR reason
         UUID operator_id
         TIMESTAMPTZ created_at
-    }
-    balance_snapshot {
-        UUID id PK
-        UUID tenant_id FK
-        UUID student_id FK
-        UUID package_id FK
-        INT remaining "=SUM(delta) 快照"
-        TIMESTAMPTZ as_of
     }
     schedule_rule {
         UUID id PK
@@ -287,12 +279,23 @@ erDiagram
 
 ---
 
+## 四、多课时包扣减顺序规则（consume 流水依据）
+
+学生同时持有多个有效课时包时，一次签到扣课按以下顺序选择被扣的课时包：
+
+1. **先过期先扣**：按 `purchase.expires_at` **升序**，越早到期的包越先被扣；
+2. **同日到期先购先扣**：`expires_at` 相同（含同日）时，按 `purchase.purchased_at` **升序**，先购买的包先扣；
+3. 选中包后写入一条 `lesson_ledger` 的 `consume` 流水，`purchase_id` 指向被扣包、`lesson_id` 指向本次课次，`delta` 为负；
+4. 该包剩余不足本次扣减时，按上述顺序顺延到下一个有效包（一笔签到可拆成多条 consume 流水，每条仍挂各自的 purchase_id / lesson_id）。
+
+> 此规则同步作为 0.5 API 清单中「签到扣课」接口的选包依据。已过期（expires_at < 当前）或余额为 0 的包不参与扣减；课时包到期后的自动处理规则后置二期（US-205）。
+
 ## 红线在表结构上的落点（自检）
 
 | 红线 | 表结构落点 |
 |------|------------|
-| 红线一：业务表带 tenant_id、复合索引从 tenant_id 起 | 业务层 18 张表全部含 `tenant_id`，字典中复合索引均以 `tenant_id` 前缀 |
-| 红线二：余额只能由流水变更 | `lesson_ledger` 只增（无 updated_at、无余额列）；余额 = `SUM(delta)`；`balance_snapshot` 仅作加速快照、可由流水重算，不作为权威来源 |
+| 红线一：业务表带 tenant_id、复合索引从 tenant_id 起 | 业务层 17 张表全部含 `tenant_id`，字典中复合索引均以 `tenant_id` 前缀 |
+| 红线二：余额只能由流水变更 | `lesson_ledger` 只增（无 updated_at、无余额列）；余额 = `SUM(delta)` 实时计算，不引入快照表；consume 流水必须挂 `purchase_id`（扣哪个包）与 `lesson_id`（哪次课） |
 | 红线三：签到扣课同事务且幂等 | `attendance` 唯一约束 `(lesson_id, student_id)`，重复签到被唯一键拒绝；扣课与签到在同一事务 |
 
 ## 与上游文档对应

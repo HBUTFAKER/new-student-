@@ -88,7 +88,7 @@
 
 ---
 
-## 业务层（18 张，均含 tenant_id）
+## 业务层（17 张，均含 tenant_id）
 
 ### student（学生）｜档案｜一期
 索引：`(tenant_id, status)`、`(tenant_id, name)`。
@@ -191,29 +191,19 @@
 | expires_at | DATE | | purchased_at + valid_months |
 
 ### lesson_ledger（课时流水·只增）｜课时账本｜一期
-索引：`(tenant_id, student_id, created_at)`、`(tenant_id, type)`。**无 updated_at、无余额列**（红线二）。
+索引：`(tenant_id, student_id, created_at)`、`(tenant_id, type)`、`(tenant_id, lesson_id)`（流水与签到互查）。**无 updated_at、无余额列**（红线二）。
 | 字段 | 类型 | 约束 | 说明 |
 |------|------|------|------|
 | id | UUID | PK | |
 | tenant_id | UUID | NOT NULL FK | |
 | student_id | UUID | NOT NULL FK→student.id | |
-| purchase_id | UUID | FK→purchase.id 可空 | 来源购课 |
+| purchase_id | UUID | FK→purchase.id；**consume 类型必填，其余类型可空** | 消费流水必须指明扣减的课时包 |
+| lesson_id | UUID | FK→lesson.id；**consume 类型必填，其余类型可空** | 消费对应课次；支撑 US-004 家长明细显示班级、流水与签到互查 |
 | type | VARCHAR(16) | NOT NULL | purchase/consume/refund/adjust/transfer |
 | delta | INT | NOT NULL | 正=增 负=减；只插不改 |
 | reason | VARCHAR(255) | | 调整/退费必填（US-209 留痕） |
 | operator_id | UUID | NOT NULL | 经办人 |
 | created_at | TIMESTAMPTZ | 默认 now() | 只增语义核心 |
-
-### balance_snapshot（课时余额快照）｜课时账本｜一期
-索引：`UK(tenant_id, student_id, package_id)`。可由 lesson_ledger 重算，非权威来源。
-| 字段 | 类型 | 约束 | 说明 |
-|------|------|------|------|
-| id | UUID | PK | |
-| tenant_id | UUID | NOT NULL FK | |
-| student_id | UUID | NOT NULL FK→student.id | |
-| package_id | UUID | NOT NULL FK→course_package.id | |
-| remaining | INT | NOT NULL | =SUM(delta) 快照值 |
-| as_of | TIMESTAMPTZ | 默认 now() | 快照时点 |
 
 ### schedule_rule（排课规律）｜排课｜一期
 索引：`(tenant_id, class_id)`、`(tenant_id, teacher_id, weekday)`、`(tenant_id, classroom_id, weekday)`（冲突校验用）。
@@ -242,6 +232,8 @@
 | start_at | TIMESTAMPTZ | NOT NULL | |
 | end_at | TIMESTAMPTZ | NOT NULL | |
 | status | VARCHAR(16) | NOT NULL 默认 'normal' | normal/moved/makeup/cancelled（US-207 调课、US-212 补课） |
+
+> 注：课次时间重叠的数据库级防护将在阶段 3 用 PG 排他约束（`tstzrange` + `EXCLUDE USING gist`）实现，普通唯一索引不用于重叠校验。
 
 ### attendance（签到记录）｜签到｜一期
 索引：**`UK(tenant_id, lesson_id, student_id)` = 幂等键（红线三）**、`(tenant_id, student_id)`。
@@ -302,7 +294,7 @@
 
 ---
 
-## 表清单与交付对照（25 张）
+## 表清单与交付对照（24 张）
 
 | 层 | 表 | 一期 | 二期 |
 |----|----|:---:|:---:|
@@ -310,7 +302,7 @@
 | 平台层 | plan / tenant_subscription / usage_meter | | ✓ |
 | 微信层 | wechat_user / wechat_openid | ✓ | |
 | 微信层 | subscribe_auth | | ✓ |
-| 业务层 | student / parent / teacher / classroom / course / class / class_enrollment / course_package / purchase / lesson_ledger / balance_snapshot / schedule_rule / lesson / attendance / parent_student / staff_account / org_config | ✓ | |
+| 业务层 | student / parent / teacher / classroom / course / class / class_enrollment / course_package / purchase / lesson_ledger / schedule_rule / lesson / attendance / parent_student / staff_account / org_config | ✓ | |
 | 业务层 | refund | | ✓ |
 
-> 自检：业务层 18 张表全部含 tenant_id 且复合索引从 tenant_id 起；lesson_ledger 只增无余额列；attendance 唯一键保证幂等；字段与 ER 图一一对应，无悬空表/字段。
+> 自检：业务层 17 张表全部含 tenant_id 且复合索引从 tenant_id 起；lesson_ledger 只增无余额列、consume 流水必挂 purchase_id 与 lesson_id；attendance 唯一键保证幂等；balance_snapshot 已移除；字段与 ER 图一一对应，无悬空表/字段。
