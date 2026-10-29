@@ -10,6 +10,7 @@
   - `01-user-stories.md` — 0.1 功能拆解 · 用户故事 · MVP 边界
   - `02-permission-matrix.md` — 0.2 角色权限矩阵（含越权防线）
   - `03-tenant-isolation.md` — 0.3 多租户隔离技术决策（ADR）
-  - `04-er-diagram.md` — 0.4 全量 ER 图（Mermaid，三层 25 表）
+  - `04-er-diagram.md` — 0.4 全量 ER 图（Mermaid，三层 24 表）
   - `04-data-dictionary.md` — 0.4 字段字典
   - `05-api-spec.md` — 0.5 API 清单（一期全量含权限与租户过滤）
+  - `06-wechat-architecture.md` — 0.6 微信端架构（统一小程序 + unionid 打通）

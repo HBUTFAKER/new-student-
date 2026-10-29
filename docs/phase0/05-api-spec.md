@@ -29,7 +29,7 @@
 - **错误**：401 `{ "error": { "code": "AUTH_FAILED", "message": "手机号或密码错误" } }`
 
 ### 1.2 `POST /auth/wechat-login` — 家长微信登录
-- **权限**：公开。code 换 openid/unionid，定位 `wechat_user`；新用户自动建 `wechat_user`。
+- **权限**：公开。code 换 openid/unionid，定位 `wechat_user`；新用户自动建 `wechat_user`。家长 JWT 的 tenant_id 取当前激活孩子所属机构；无绑定/未选择孩子时为 NULL，仅开放绑定与孩子集合接口（详见 0.6）。
 - **请求**：`{ "wx_code": "wechat_jscode" }`
 - **响应 200**：`{ "access_token": "eyJ…", "role": "parent", "bound_students": 0 }`
 - **错误**：401 `{ "error": { "code": "WX_AUTH_FAILED", "message": "微信授权失败" } }`
@@ -281,7 +281,7 @@
 - `GET /me/students` — ⚠️家长：仅返回当前微信号绑定集合
 - **响应 200**：`{ "items": [ { "student_id": "uuid", "student_name": "王小明", "active": true } ] }`
 - `POST /me/active-student` — ⚠️家长：目标必须在绑定集合内（V-08：集合外 403）
-- **请求**：`{ "student_id": "uuid" }`；**响应 200**：`{ "active_student_id": "uuid" }`
+- **请求**：`{ "student_id": "uuid" }`；**响应 200**：`{ "active_student_id": "uuid", "access_token": "eyJ…", "token_type": "bearer", "expires_in": 7200 }`（切换后必须重签 JWT，使 tenant_id 跟随当前孩子所属机构，见 0.6）
 - **错误**：403 `OUT_OF_BINDING_SET`。
 
 ### 9.3 周课表（US-002）
