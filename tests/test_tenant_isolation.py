@@ -16,7 +16,6 @@ from sqlalchemy.ext.asyncio import (
 from app.core.config import get_settings
 from app.db.tenant import tenant_context
 from app.models.archive import Student
-from tests.db_support import run_alembic
 
 pytestmark = [
     pytest.mark.integration,
@@ -25,13 +24,6 @@ pytestmark = [
         reason="set RUN_DB_TESTS=1 and start PostgreSQL to run RLS tests",
     ),
 ]
-
-
-@pytest.fixture(scope="module", autouse=True)
-def migrated_database() -> None:
-    """Create the app role before opening any runtime connections."""
-
-    run_alembic("upgrade", "head")
 
 
 @dataclass(frozen=True)
