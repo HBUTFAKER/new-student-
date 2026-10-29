@@ -70,3 +70,38 @@ jobs:
 
       - name: Run tests
         run: python -m pytest -q
+
+  docker-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Prepare local environment
+        run: cp .env.example .env
+
+      - name: Build and start containers
+        run: docker compose up -d --build
+
+      - name: Verify health endpoints
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://localhost:8000/health >/dev/null; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              echo "API did not become healthy in time"
+              exit 1
+            fi
+            sleep 2
+          done
+          test "$(curl --fail --silent http://localhost:8000/health)" = '{"status":"ok"}'
+          test "$(curl --fail --silent http://localhost:8000/health/db)" = '{"status":"ok","database":"ok"}'
+
+      - name: Show container logs on failure
+        if: failure()
+        run: docker compose logs --no-color
+
+      - name: Stop containers
+        if: always()
+        run: docker compose down -v
