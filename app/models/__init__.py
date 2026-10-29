@@ -4,7 +4,14 @@ Importing this package registers every table on ``Base.metadata`` so that Alembi
 autogenerate and the schema tests see the complete model.
 """
 
-from app.models.archive import Classroom, Parent, ParentStudent, Student, Teacher
+from app.models.archive import (
+    Classroom,
+    InviteCode,
+    Parent,
+    ParentStudent,
+    Student,
+    Teacher,
+)
 from app.models.attendance import Attendance
 from app.models.course import Class, ClassEnrollment, Course, CoursePackage
 from app.models.ledger import LessonLedger
@@ -48,6 +55,7 @@ BUSINESS_TABLES: tuple[str, ...] = (
     "staff_account",
     "org_config",
     "refund",
+    "invite_code",
 )
 
 #: Tables protected by RLS + FORCE RLS: all tenant-scoped business data, plus the
@@ -67,6 +75,7 @@ __all__ = [
     "Classroom",
     "Course",
     "CoursePackage",
+    "InviteCode",
     "Lesson",
     "LessonLedger",
     "OrgConfig",

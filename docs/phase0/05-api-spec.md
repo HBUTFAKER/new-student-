@@ -42,6 +42,12 @@
 
 ## 2. 档案模块
 
+> **1.6 落地说明**：2.1–2.6 全部接口、2.3 教务直绑、2.4 邀请码、9.1 家长自助绑定已实现并通过阶段验收测试。差异与实现口径：
+> - 删除一律为状态位：学生 `archived`、老师 `inactive`、绑定才物理删（`DELETE`）。
+> - 错误码实际取值：`409 PARENT_DUPLICATED`（同租户手机号唯一）、`422 STUDENT_ARCHIVED`、`409 BINDING_EXISTS`、`404 STUDENT_NOT_FOUND` / `PARENT_NOT_FOUND` / `TEACHER_NOT_FOUND` / `BINDING_NOT_FOUND`、`422 CAPACITY_INVALID`、`404 INVITE_CODE_INVALID`、`422 EXPIRES_INVALID`、`403 OUT_OF_SCOPE`、`403 TENANT_CONTEXT_REQUIRED`。
+> - 老师侧收窄是**默认行为**而非参数：`GET /students`、`GET /classes`、`GET /classrooms` 及 `GET /students/{id}` 都按 `Class.teacher_id` 过滤，非任教资源返回 404 或 403。
+> - 解绑立即生效：每次请求都回库复核绑定集合，不使用 token 内的缓存快照。
+
 ### 2.1 学生档案
 | 接口 | 权限 |
 |------|------|
@@ -131,6 +137,7 @@
 - **请求**：`{ "course_id": "uuid", "teacher_id": "uuid", "classroom_id": "uuid", "name": "冲刺A班", "capacity": 12 }`
 - **响应 201**：`{ "id": "uuid", "name": "冲刺A班", "capacity": 12 }`
 - **错误**：422 `CAPACITY_EXCEEDED`（容量低于已报人数）。
+- **进度**：`GET /classes` 已随 1.6 落地（只读，老师自动收窄为任教班级）；`POST`/`PATCH` 待 1.7 课程班级模块。
 
 ### 3.3 班级学员名单
 | 接口 | 权限 |
@@ -275,8 +282,9 @@
 ### 9.1 自助绑定孩子（US-001，凭教务生成的邀请码，见 2.4）
 - `POST /me/bindings` — ⚠️家长：仅凭有效邀请码绑定（区别于教务侧 /bindings 直绑）
 - **请求**：`{ "invite_code": "AB12-CD34" }`
-- **响应 201**：`{ "student_id": "uuid", "student_name": "王小明", "relation": "家长" }`
-- **错误**：404 `INVITE_CODE_INVALID`（无效/过期）；409 `BINDING_EXISTS`。
+- **响应 201**：`{ "student_id": "uuid", "student_name": "王小明", "relation": "家长", "tenant_id": "uuid", "active_student_id": "uuid", "access_token": "eyJ…", "refresh_token": "eyJ…", "token_type": "bearer", "expires_in": 7200 }`
+  （1.6 落地：绑定成功的同一个事务内消耗邀请码、建 `parent`、写 `parent_student`，并**直接重签 JWT** 让 `tenant_id` 跟随新孩子，家长无需二次登录）
+- **错误**：404 `INVITE_CODE_INVALID`（无效/过期/已用）；409 `BINDING_EXISTS`；422 `STUDENT_ARCHIVED`。
 
 ### 9.2 绑定孩子列表与切换（US-010）
 - `GET /me/students` — ⚠️家长：仅返回当前微信号绑定集合
@@ -325,6 +333,7 @@
 - 消息：`POST /notifications/subscribe`（订阅消息授权记录）、发送上课提醒/扣课通知（内部任务）
 - 管理员端：`GET /reports/operations`（经营报表）、`GET /audit-logs`（审计日志）、`PATCH /org-config`（机构信息/通知模板）、`POST /campuses`（多校区）、候补名单相关
 - 平台侧：`POST /platform/tenants`（自助开通）、`GET /platform/tenants`、`GET /platform/usage`、`POST /platform/plans`、`POST /platform/tenants/{id}/service-account-auth`（机构服务号授权）、`GET /platform/dashboard`
+  - **注**：`POST /platform/tenants` 的基础开通能力（建租户 + 默认套餐 + 机构配置 + 首个管理员，单事务、同名 409）已于 1.5 落地，仅限内部平台管理员调用；商业化（套餐变更、用量计费、自助注册流程）仍在二期。
 
 ## 12. 覆盖对照自检
 

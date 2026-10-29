@@ -294,7 +294,7 @@
 
 ---
 
-## 表清单与交付对照（24 张）
+## 表清单与交付对照（25 张）
 
 | 层 | 表 | 一期 | 二期 |
 |----|----|:---:|:---:|
@@ -303,6 +303,21 @@
 | 微信层 | wechat_user / wechat_openid | ✓ | |
 | 微信层 | subscribe_auth | | ✓ |
 | 业务层 | student / parent / teacher / classroom / course / class / class_enrollment / course_package / purchase / lesson_ledger / schedule_rule / lesson / attendance / parent_student / staff_account / org_config | ✓ | |
+| 业务层 | invite_code（1.6 追加，家长自助绑定凭证） | ✓ | |
 | 业务层 | refund | | ✓ |
 
-> 自检：业务层 17 张表全部含 tenant_id 且复合索引从 tenant_id 起；lesson_ledger 只增无余额列、consume 流水必挂 purchase_id 与 lesson_id；attendance 唯一键保证幂等；balance_snapshot 已移除；字段与 ER 图一一对应，无悬空表/字段。
+### `invite_code`（0.4 遗漏、1.6 追加）
+
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | UUID | PK 默认 gen_random_uuid() | |
+| tenant_id | UUID | NOT NULL FK→tenant.id | 复合索引从 tenant_id 起 |
+| code | VARCHAR(16) | NOT NULL UNIQUE | `XXXX-XXXX`，去除易混淆字符 |
+| student_id | UUID | NOT NULL FK→student.id | 绑定的目标学生 |
+| expires_at | TIMESTAMPTZ | NOT NULL | 默认 24h，同上限 720h |
+| used_at | TIMESTAMPTZ | 可空 | 一次性：非空即作废 |
+| used_by_wechat_user_id | UUID | 可空 FK→wechat_user.id | 谁兑换的，便于教务核对 |
+| created_by | UUID | 可空 FK→staff_account.id | 生成人 |
+| created_at | TIMESTAMPTZ | NOT NULL 默认 now() | |
+
+> 自检：业务层 18 张表全部含 tenant_id 且复合索引从 tenant_id 起；lesson_ledger 只增无余额列、consume 流水必挂 purchase_id 与 lesson_id；attendance 唯一键保证幂等；balance_snapshot 已移除；字段与 ER 图一一对应，无悬空表/字段。

@@ -3,7 +3,7 @@
 > 对应《学生信息管理系统_分步执行清单》步骤 0.4。
 > 技术栈：PostgreSQL + SQLAlchemy + Alembic。命名 snake_case、表名单数。
 > 配套字段字典：`04-data-dictionary.md`（外键/字段与本文一一对应）。
-> 三层共 24 张表：平台层 4、微信层 3、业务层 17。
+> 三层共 25 张表：平台层 4、微信层 3、业务层 18（`invite_code` 为 1.6 实现时追加，见 `04-data-dictionary.md` §invite_code）。
 
 ## 全局约定（所有图通用）
 

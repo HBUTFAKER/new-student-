@@ -14,8 +14,8 @@ ALL_TABLES = tuple(sorted(Base.metadata.tables))
 def test_table_layers_match_dictionary() -> None:
     assert len(PLATFORM_TABLES) == 4
     assert len(WECHAT_TABLES) == 3
-    assert len(BUSINESS_TABLES) == 17
-    assert len(set(BUSINESS_TABLES)) == 17
+    assert len(BUSINESS_TABLES) == 18
+    assert len(set(BUSINESS_TABLES)) == 18
     assert set(Base.metadata.tables) == {*PLATFORM_TABLES, *WECHAT_TABLES, *BUSINESS_TABLES}
 
 

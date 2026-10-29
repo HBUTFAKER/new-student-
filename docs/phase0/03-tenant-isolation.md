@@ -178,13 +178,14 @@ def test_pool_reset_no_tenant_leak():
 
 **问题**：登录时尚未知道 `tenant_id`，但 `staff_account` 与 `parent` 都受 RLS 保护，正常查询会得到空集。如果为了登录关闭 RLS，或者让 API 持有 owner 连接，1.3 的隔离就全部失效。
 
-**结论**：保留 RLS 与 `app_user`，新增三个最小权限 `SECURITY DEFINER` 函数，只暴露认证必需列：
+**结论**：保留 RLS 与 `app_user`，新增四个最小权限 `SECURITY DEFINER` 函数（1.4 三个 + 1.6 一个），只暴露认证/兑换必需列：
 
 | 函数 | 输入 | 返回 | 用途 |
 |------|------|------|------|
 | `auth_staff_candidates(phone)` | 手机号 | id、tenant_id、password_hash、role、status、teacher_id | 员工登录定位候选账号 |
 | `auth_staff_by_id(id)` | 员工 id | 同上 | 每次请求回库复核角色/租户/停用状态（V-02） |
 | `auth_wechat_bindings(wechat_user_id)` | 微信用户 id | 绑定关系、学生/机构显示字段 | 0.6 受控跨机构绑定查询 |
+| `auth_invite_code(code)` | 邀请码字符串 | id、tenant_id、student_id、expires_at、used_at | 家长兑换时按码定位租户（此刻尚无 `tenant_id`） |
 
 约束：
 - 函数 `SECURITY DEFINER` + 固定 `search_path = public, pg_temp`，`REVOKE ALL FROM PUBLIC` 后仅 `GRANT EXECUTE TO app_user`；

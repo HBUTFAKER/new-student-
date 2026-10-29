@@ -71,7 +71,7 @@ async def get_tenant_db(
 ) -> AsyncIterator[AsyncSession]:
     """Bind the transaction to the authenticated tenant; reject tenantless parents."""
 
-    if principal.is_parent and not principal.has_tenant:
+    if not principal.has_tenant:
         raise AppError(403, "TENANT_CONTEXT_REQUIRED", "请先选择孩子")
     async with tenant_context(session, principal.tenant_id):
         yield session

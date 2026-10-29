@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import Depends
@@ -25,6 +26,10 @@ def require_role(*roles: str) -> Callable[[Principal], Principal]:
         return principal
 
     return dependency
+
+
+OfficeUser = Annotated[Principal, Depends(require_role("admin", "registrar"))]
+TeacherOrOffice = Annotated[Principal, Depends(require_role("admin", "registrar", "teacher"))]
 
 
 def require_any(*roles: str) -> Callable[[Principal], Principal]:

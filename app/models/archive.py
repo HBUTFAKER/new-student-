@@ -1,8 +1,10 @@
 """Archive module: students, parents, teachers, classrooms and bindings."""
 
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import (
+    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -87,3 +89,24 @@ class ParentStudent(UUIDPrimaryKeyMixin, CreatedAtMixin, TenantMixin, Base):
         Uuid(as_uuid=True), ForeignKey("student.id"), nullable=False
     )
     relation: Mapped[str | None] = mapped_column(String(16), nullable=True)
+
+
+class InviteCode(UUIDPrimaryKeyMixin, CreatedAtMixin, TenantMixin, Base):
+    """一次性家长绑定邀请码（0.5 2.4）：同一学生可并存多个有效码。"""
+
+    __tablename__ = "invite_code"
+    __table_args__ = (
+        UniqueConstraint("code"),
+        Index("ix_invite_code_tenant_id_student_id", "tenant_id", "student_id"),
+    )
+
+    code: Mapped[str] = mapped_column(String(16), nullable=False)
+    student_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("student.id"), nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    used_by_wechat_user_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("wechat_user.id"), nullable=True
+    )
+    created_by: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
