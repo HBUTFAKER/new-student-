@@ -9,3 +9,4 @@
 - `docs/phase0/` — 阶段 0 设计文档
   - `01-user-stories.md` — 0.1 功能拆解 · 用户故事 · MVP 边界
   - `02-permission-matrix.md` — 0.2 角色权限矩阵（含越权防线）
+  - `03-tenant-isolation.md` — 0.3 多租户隔离技术决策（ADR）
