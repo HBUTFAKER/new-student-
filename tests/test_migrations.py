@@ -6,9 +6,6 @@ CLI so the async migration environment is exercised exactly as in production.
 """
 
 import os
-import subprocess
-import sys
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -20,8 +17,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from app.core.config import get_settings
 from app.db.base import Base
 from app.models import BUSINESS_TABLES
-
-ROOT = Path(__file__).resolve().parents[1]
+from tests.db_support import run_alembic
 
 pytestmark = [
     pytest.mark.integration,
@@ -30,23 +26,6 @@ pytestmark = [
         reason="set RUN_DB_TESTS=1 and start PostgreSQL to run migration tests",
     ),
 ]
-
-
-def run_alembic(*args: str) -> None:
-    """Invoke the Alembic CLI in a subprocess (its env.py uses asyncio.run)."""
-
-    result = subprocess.run(
-        [sys.executable, "-m", "alembic", *args],
-        cwd=ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=300,
-    )
-    assert result.returncode == 0, (
-        f"alembic {' '.join(args)} failed with exit code {result.returncode}\n"
-        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
-    )
 
 
 def collect_schema(sync_connection: sa.Connection) -> dict[str, Any]:
@@ -82,7 +61,7 @@ def collect_schema(sync_connection: sa.Connection) -> dict[str, Any]:
 
 
 async def snapshot() -> dict[str, Any]:
-    engine = create_async_engine(get_settings().database_url)
+    engine = create_async_engine(get_settings().migration_database_url)
     try:
         async with engine.connect() as connection:
             return await connection.run_sync(collect_schema)

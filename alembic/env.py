@@ -25,7 +25,7 @@ if config.config_file_name is not None:
         pass
 
 settings = get_settings()
-config.set_main_option("sqlalchemy.url", settings.database_url.replace("%", "%%"))
+config.set_main_option("sqlalchemy.url", settings.migration_database_url.replace("%", "%%"))
 
 
 def run_migrations_offline() -> None:

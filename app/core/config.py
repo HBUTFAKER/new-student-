@@ -25,10 +25,15 @@ class Settings(BaseSettings):
     app_env: Literal["local", "test", "staging", "production"] = "local"
     debug: bool = False
     log_level: str = "INFO"
-    database_url: str = "postgresql+asyncpg://student:student@localhost:5432/student"
+    database_url: str = "postgresql+asyncpg://app_user:app_user_dev_password@localhost:5432/student"
+    # Alembic needs DDL and role-management privileges; runtime traffic must
+    # never use this URL because a superuser/owner bypasses RLS.
+    migration_database_url: str = (
+        "postgresql+asyncpg://student:student_dev_password@localhost:5432/student"
+    )
     db_echo: bool = False
 
-    @field_validator("database_url")
+    @field_validator("database_url", "migration_database_url")
     @classmethod
     def require_async_postgres_driver(cls, value: str) -> str:
         if not value.startswith("postgresql+asyncpg://"):

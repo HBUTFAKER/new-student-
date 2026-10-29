@@ -2,7 +2,7 @@
 
 面向培训/托管机构的多租户 SaaS 学生信息管理系统：管理端 Web + 家长端微信小程序。覆盖学生/家长/老师档案、课程班级与课时包、只增流水的课时账本、规律排课与冲突校验、签到扣课时（同事务+幂等）、退费/转班/补课、经营报表、家长端课表余额查询与课堂反馈、微信消息触达降级链（订阅消息→服务号→短信），以及机构自助开通的 SaaS 运营能力。
 
-当前处于 **阶段 1（工程脚手架）**。阶段 0 的七份设计文档已完成；1.2 已按 0.4 字段字典落地 **24 张表**与初始 Alembic 迁移，业务接口从 1.3 起逐步实现。
+当前处于 **阶段 1（工程脚手架）**。阶段 0 的七份设计文档已完成；1.2 已按 0.4 字段字典落地 **24 张表**与初始 Alembic 迁移，1.3 已落地非 superuser 应用角色、真 RLS 隔离与事务级租户上下文。
 
 ## 技术栈
 
@@ -45,6 +45,7 @@ python -m venv .venv
 # macOS/Linux: source .venv/bin/activate
 python -m pip install -e ".[dev]"
 docker compose up -d db
+alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
@@ -58,9 +59,9 @@ alembic downgrade base   # 回滚到空库
 alembic current          # 当前版本
 ```
 
-初始迁移 `alembic/versions/0001_initial_schema.py` 与 `docs/phase0/04-data-dictionary.md` 一一对应：平台层 4 张、微信层 3 张、业务层 17 张。
+初始迁移 `alembic/versions/0001_initial_schema.py` 与 `docs/phase0/04-data-dictionary.md` 一一对应：平台层 4 张、微信层 3 张、业务层 17 张。`0002_rls_app_role.py` 创建非 superuser、非 owner、无 `BYPASSRLS` 的 `app_user` 并授予业务表 DML。
 
-> **租户隔离现状**：迁移已为 18 张租户数据表启用 `ENABLE`/`FORCE ROW LEVEL SECURITY` 与读写两条策略，但当前连接仍使用建库账号（表属主），RLS 实际不生效，租户过滤由应用层 `tenant_id` 条件保证。按 0.3 决策 2，后续步骤需要引入独立的非 owner 应用角色。
+> **租户隔离**：18 张租户数据表均启用 `ENABLE`/`FORCE ROW LEVEL SECURITY`。运行时 `DATABASE_URL` 必须使用 `app_user`；`MIGRATION_DATABASE_URL` 仅供 Alembic 执行 DDL。每个租户事务以 `SELECT set_config('app.tenant_id', :tenant_id, true)` 设置上下文，事务结束自动清除，连接归还连接池时 rollback，不残留到下一个请求。
 
 ## 测试与检查
 

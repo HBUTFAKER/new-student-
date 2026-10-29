@@ -25,7 +25,12 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-student}:${POSTGRES_PASSWORD:-student_dev_password}@db:5432/${POSTGRES_DB:-student}
+      DATABASE_URL: postgresql+asyncpg://app_user:${APP_DB_PASSWORD:-app_user_dev_password}@db:5432/${POSTGRES_DB:-student}
+      MIGRATION_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-student}:${POSTGRES_PASSWORD:-student_dev_password}@db:5432/${POSTGRES_DB:-student}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:-app_user_dev_password}
+    command: >-
+      sh -c "alembic upgrade head &&
+      uvicorn app.main:app --host 0.0.0.0 --port 8000"
     ports:
       - "8000:8000"
     depends_on:
