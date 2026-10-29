@@ -76,7 +76,19 @@
 - **POST 响应 201**：`{ "id": "uuid", "relation": "父" }`
 - **错误**：409 `BINDING_EXISTS`（重复绑定）；422 `STUDENT_ARCHIVED`（归档学生不可绑）。
 
-### 2.4 老师档案
+### 2.4 邀请码（家长自助绑定的前置，US-001）
+| 接口 | 权限 |
+|------|------|
+| `POST /invite-codes` | ✅教务/管理员 |
+| `GET /students/{id}/invite-codes` | ✅教务/管理员 |
+
+- **POST 请求**：`{ "student_id": "uuid", "expires_in_hours": 24 }`
+- **POST 响应 201**：`{ "code": "AB12-CD34", "student_id": "uuid", "expires_at": "2026-11-01T10:00:00+08:00" }`
+- **规则**：一次性使用；默认 24 小时有效，使用后作废；同一学生可同时存在多个有效码（爸妈各绑一次）。
+- **GET 响应 200**：`{ "items": [ { "code": "AB12-CD34", "status": "used", "used_by": "wechat_user_uuid" }, { "code": "EF56-GH78", "status": "valid", "expires_at": "…" } ] }`（列出该学生的有效/已用码，便于教务核对）
+- **错误**：404 `STUDENT_NOT_FOUND`；422 `EXPIRES_INVALID`。
+
+### 2.5 老师档案
 | 接口 | 权限 |
 |------|------|
 | `POST /teachers` | ✅教务/管理员 |
@@ -88,7 +100,7 @@
 - **响应 201**：`{ "id": "uuid", "name": "李老师", "status": "active" }`
 - **错误**：404 `TEACHER_NOT_FOUND`。
 
-### 2.5 教室档案（US-216）
+### 2.6 教室档案（US-216）
 | 接口 | 权限 |
 |------|------|
 | `POST /classrooms` | ✅教务/管理员 |
@@ -215,24 +227,29 @@
 ```
 - **响应 200**：
 ```json
-{ "lesson_id": "uuid", "results": [ { "student_id": "uuid-a", "status": "present", "deduct_lessons": 1, "deduplicated": false },
-  { "student_id": "uuid-b", "status": "leave", "deduct_lessons": 0, "deduplicated": false },
-  { "student_id": "uuid-c", "status": "absent", "deduct_lessons": 1, "deduplicated": true } ] }
+{ "lesson_id": "uuid", "results": [
+  { "student_id": "uuid-a", "status": "present", "deduct_lessons": 1, "deduplicated": false },
+  { "student_id": "uuid-b", "status": "leave", "deduct_lessons": 1, "deduplicated": false },
+  { "student_id": "uuid-c", "status": "absent", "deduct_lessons": 1, "deduplicated": true },
+  { "student_id": "uuid-d", "status": "failed", "reason": "BALANCE_EXHAUSTED" } ] }
 ```
+> 示例为 deduct 模式：leave 与 absent 均扣 1 课时（none 模式下两者 deduct_lessons 均为 0）。
 - **幂等实现**：`attendance` 唯一键 `(tenant_id, lesson_id, student_id)`；重复请求（重复点击/断网重试/教务补录撞老师已签）**命中唯一键即返回已有结果**（`deduplicated: true`），不报错、不重复扣课。签到与扣课写流水在同一事务（红线三）。
 - **扣包顺序**：按 0.4 第四节规则——先过期先扣（`expires_at` 升序）→ 同日到期先购先扣（`purchased_at` 升序）→ 单包不足顺延下一有效包、拆多条 `consume` 流水（各挂各自 `purchase_id`/`lesson_id`）。
-- **缺勤扣课规则**：`status=absent` 是否扣课时按 `org_config.absence_deduct_rule`（none/deduct，US-217）；扣则照常写 consume 流水。
-- **错误**：403 `OUT_OF_SCOPE`（非任教班级课次）；422 `LESSON_NOT_STARTED`；409 `BALANCE_EXHAUSTED`（无可扣包：名单内学生无有效余额时整批拒绝并返回明细）。
+- **请假/缺勤扣课规则（通用）**：`status=leave` 与 `status=absent` **一致处理**，是否扣课时均按 `org_config.absence_deduct_rule`（none/deduct，US-217）；扣则照常写 consume 流水；none 模式下两者 `deduct_lessons` 均为 0。
+- **逐学生判定（部分成功）**：名单内每个学生独立判定，无有效余额的学生该条返回 `{ "status": "failed", "reason": "BALANCE_EXHAUSTED" }`，不阻塞其他学生；failed 不写入 attendance，可先购课再对该生重新提交（幂等保证已成功学生不重扣）。
+- **错误**：403 `OUT_OF_SCOPE`（非任教班级课次）；422 `LESSON_NOT_STARTED`。（BALANCE_EXHAUSTED 不再是整批 409，改为逐条 failed 原因）
 
 ### 6.2 点名结果查询
 - `GET /lessons/{lesson_id}/attendance` — ✅教务/管理员；⚠️老师仅任教班级课次
 - **响应 200**：`{ "items": [ { "student_id": "uuid", "status": "present", "deduct_lessons": 1, "operator_id": "uuid" } ], "total": 10 }`
 
-### 6.3 缺勤扣课规则配置（US-217）
-- `PATCH /org-config/absence-deduct-rule` — ⚠️教务（可改+留痕）；✅管理员；家长/老师只读
-- **请求**：`{ "absence_deduct_rule": "deduct" }`
+### 6.3 请假/缺勤扣课规则配置（US-217 通用规则）
+- `GET /org-config/absence-deduct-rule` — ✅教务/管理员；⚠️老师可读（点名界面提示用）；❌家长不可见
+- `PATCH /org-config/absence-deduct-rule` — ⚠️教务（可改+留痕）；✅管理员
+- **PATCH 请求**：`{ "absence_deduct_rule": "deduct" }`
 - **响应 200**：`{ "absence_deduct_rule": "deduct", "updated_by": "uuid" }`
-- **说明**：一处配置全机构生效；改动写操作审计记录。
+- **说明**：一处配置全机构生效，请假/缺勤通用；改动写操作审计记录；一期若无界面展示，仅服务端签到逻辑使用，家长端不展示。
 - **错误**：422 `RULE_VALUE_INVALID`（仅 none/deduct）。
 
 ## 7. 交易模块
@@ -254,7 +271,7 @@
 
 ## 9. 家长端模块（小程序·只读三件套）
 
-### 9.1 自助绑定孩子（US-001，凭教务生成的邀请码）
+### 9.1 自助绑定孩子（US-001，凭教务生成的邀请码，见 2.4）
 - `POST /me/bindings` — ⚠️家长：仅凭有效邀请码绑定（区别于教务侧 /bindings 直绑）
 - **请求**：`{ "invite_code": "AB12-CD34" }`
 - **响应 201**：`{ "student_id": "uuid", "student_name": "王小明", "relation": "家长" }`
@@ -310,6 +327,6 @@
 
 ## 12. 覆盖对照自检
 
-- 0.2 矩阵一期各 ✅/⚠️ 操作 ↔ 本文接口：档案 5 组（学生/家长/绑定/老师/教室）、课程班级 5 组（课程/班级/名单/课时包/缴费）、账本 3 条（流水/余额/调整）、排课 3 条（规律/预检/调课）、签到 3 条（点名/结果/缺勤规则）、交易 1 条（转班）、家长端 5 条（绑定/切换/课表/余额/明细）、机构配置 1 条（员工账号）、认证 3 条——**双向无遗漏**。
+- 0.2 矩阵一期各 ✅/⚠️ 操作 ↔ 本文接口：档案 6 组（学生/家长/绑定/邀请码/老师/教室）、课程班级 5 组（课程/班级/名单/课时包/缴费）、账本 3 条（流水/余额/调整）、排课 3 条（规律/预检/调课）、签到 4 条（点名/结果/规则读/规则写）、交易 1 条（转班）、家长端 5 条（绑定/切换/课表/余额/明细）、机构配置 1 条（员工账号）、认证 3 条——**双向无遗漏**。
 - 报表/消息一期无接口（全二期），矩阵对应行均已标二期。
 - 全接口租户过滤方式统一（第 0 节），数据归属条件在各接口标注，与 0.2 矩阵 ⚠️ 条款一一对应。

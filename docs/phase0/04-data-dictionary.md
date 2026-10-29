@@ -276,7 +276,7 @@
 |------|------|------|------|
 | id | UUID | PK | |
 | tenant_id | UUID | NOT NULL FK UNIQUE | |
-| absence_deduct_rule | VARCHAR(16) | NOT NULL 默认 'none' | none=不扣/deduct=照扣（US-217） |
+| absence_deduct_rule | VARCHAR(16) | NOT NULL 默认 'none' | none=不扣/deduct=照扣，请假与缺勤通用（US-217） |
 | logo | VARCHAR(255) | | 机构 logo（US-305 二期） |
 | notify_template | JSONB | | 通知模板（US-305 二期） |
 

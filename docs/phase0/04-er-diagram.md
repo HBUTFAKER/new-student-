@@ -262,7 +262,7 @@ erDiagram
     org_config {
         UUID id PK
         UUID tenant_id FK "UNIQUE 一机构一条"
-        VARCHAR absence_deduct_rule "none/deduct 缺勤扣课 US-217"
+        VARCHAR absence_deduct_rule "none/deduct 请假与缺勤通用 US-217"
         VARCHAR logo
         JSONB notify_template
     }
@@ -303,5 +303,5 @@ erDiagram
 - `tenant_id` 全覆盖 + RLS → 0.3 决策 1/2
 - `student.status`（active/suspended/archived）→ 0.2 修正口径：删除 = 改状态，不物理删除
 - `course_package.valid_months` → 0.1 US-205 有效期
-- `org_config.absence_deduct_rule` → 0.1 US-217 缺勤扣课规则
+- `org_config.absence_deduct_rule` → 0.1 US-217 请假/缺勤扣课规则（两者通用）
 - `classroom.capacity / available_slots` → 0.1 US-216 教室档案
