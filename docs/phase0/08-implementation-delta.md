@@ -8,11 +8,37 @@
 > - 发令部：读 §0 最新一块 + §4 已锁定约定，再出指令。别只看 01~07 原文，那是基线，不是现状。
 > - 开发：动表结构、动既有测试、动已上线接口前，先读 §1 与 §2。
 
-当前状态：**阶段 3.2 完成**，Alembic head = `0008_tenant_holiday`，全库 26 张表（业务层 19 张）。
+当前状态：**阶段 3.4 完成**，Alembic head = `0009_lesson_exclude`，全库 26 张表（业务层 19 张）。
 
 ---
 
 ## §0 交接区（最新在最上面）
+
+### [3.4] 2026-10-30 06:55 · commit `5af6cc5`（待 push，CI 待确认）
+
+**我改了什么**
+
+- 单次加课 `POST /lessons`（201）：复用 3.3 的 `create_lesson`（引用+时间校验 → 三维度预检 → EXCLUDE 兜底 409 `SCHEDULE_CONFLICT`），补上了 `create_lesson` 原本缺的引用校验（班级/教室/老师存在、老师在职、班级未结课）与 aware/起止时间校验。
+- 调课/取消 `PATCH /lessons/{id}`（200）：守门 `LESSON_ALREADY_DONE`（已有 `attendance` 行 **或** 已过 `start_at` → 422），调课与取消统一守门；调课改时间/教室/老师后 `status='moved'`，冲突走 `find_conflicts`（**排除自身**）→ 409 `LESSON_OVERLAP` 带 `conflicts` 明细，EXCLUDE 兜底；取消只翻 `status='cancelled'`（不删行，EXCLUDE 谓词自动忽略 → 时段释放）。
+- 补课排期 `POST /makeup-lessons`（201，US-212）：在**目标课次**为该学员写一条 `attendance` 行，`status='makeup'`、`deduct_lessons=0`。校验：学员存在、缺勤课次上确有 `absent/leave` 记录（否则 422 `ABSENCE_NOT_FOUND`）、目标课次未来且 `normal`（422 `MAKEUP_TARGET_INVALID`）、同目标课次已占座 → 409 `MAKEUP_ALREADY_SCHEDULED`。跨班补课允许。
+- 新增 `app/services/attendance.py`（`schedule_makeup`）；三条路由都收口 `OfficeUser`。
+- 测试 12 项（`tests/test_lesson_ops.py`）；全量 233 passed。
+
+**必须跟着改的地方**
+
+1. **无**。本步没加表、没加列、没动既有测试数字（表数维持 26 / 业务层 19，`test_models`/`test_migrations` 不动）。
+2. `create_lesson` 现在会做引用校验 + aware/起止校验——3.3 的并发测试直接调它，引用都是真实种子，不受影响。
+
+**给发令部的指令**
+
+- **调课/取消/补课一律不写 `lesson_ledger` 流水**（红线）。课时只随签到（3.5）变动。别让后续步骤在调课/取消/补课里写 grant/consume。
+- 调课冲突用 `409 LESSON_OVERLAP`（05 明示）；单次加课沿用 `409 SCHEDULE_CONFLICT`（3.3 既有）。两个都带 `detail.conflicts`。
+- **补课排期 ≠ 2.5 补课**：本步是纯排期（只写 attendance 占位行），2.5 的 `POST /lessons/{id}/make-ups` 是资金侧（写 `grant` +1 流水）。两者是两条独立接口，别混。
+- **通知联动后置到 6.1**，本步不建通知表、不发通知、不建桩。留给 6.1 的事件清单：`lesson.moved` / `lesson.cancelled` / `makeup.scheduled`。
+- **已知限制（如实上报，非遗漏）**：补课排期的「同一缺勤只排一次」以 attendance 唯一键 `(target_lesson_id, student_id)` 表达；`attendance` 没有「缺勤课次」回链列（缺勤→补课的链接由 2.5 的 `grant` 流水 `lesson_id` 承载），所以「同一缺勤排到**不同**目标课次」的跨目标去重不在本步能力内。若要严格跨目标去重，需在 `attendance` 加 `absent_lesson_id` 列（要走 §1 加列流程），或依赖 2.5 资金侧查重。发令部决定要不要补。
+- 请求体 `reason` 可选，但 `attendance` 无 `reason` 列，接受后不落库（与退款 `refund_amount` 同口径）。
+
+---
 
 ### [3.3] 2026-10-30 06:15 · commit `d96c79d`（待 push，CI 待确认）
 
@@ -162,8 +188,11 @@ DELETE /tenant-holidays/{id}                                             → 204
 
 | 项 | 出处 | 归属 |
 |----|------|------|
-| `POST /lessons`（单次加课，复用 `create_lesson`）、`PATCH /lessons/{id}`（调课/取消，status=moved/cancelled） | 05 §5.3 | 3.4 / 后续 |
-| `LESSON_OVERLAP` 独立错误码（当前统一用 `SCHEDULE_CONFLICT`） | 05 §5.1 | 后续按需 |
+| 签到（`POST /lessons/{id}/attendance`，扣课时同事务+幂等、请假/缺勤扣课规则） | 05 §6 | 3.5 |
+| 通知中心（调课/取消/补课事件 `lesson.moved`/`lesson.cancelled`/`makeup.scheduled` 的联动） | 05 §6.1 | 6.1 |
+| 老师/家长课表收窄（`GET /lessons` 按任教/绑定班级自动收窄） | 05 §5.3 | 课表接口（US-101） |
+
+> 原 `POST /lessons`（单次加课）、`PATCH /lessons/{id}`（调课/取消）、`LESSON_OVERLAP` 独立错误码三条已在 3.4 落地，从本表移除。
 
 ---
 
@@ -206,3 +235,4 @@ DELETE /tenant-holidays/{id}                                             → 204
 | 3.2 | `4a90d5e` | `tenant_holiday` + `0008`；`POST /lessons/generate`；节假日三件套；测试数字 18→19、25→26 |
 | 文档 | `7e55f92` | 本文件建立；04/04-er/05 数字与契约提示修正 |
 | 3.3 | `d96c79d` | `find_conflicts` 三维度 + 迁移 `0009` EXCLUDE + `create_lesson` + `validate` 接口；生成响应加 `skipped_conflicts` |
+| 3.4 | `5af6cc5` | `POST /lessons`（复用 `create_lesson` 补引用校验）、`PATCH /lessons/{id}`（moved/cancelled，`LESSON_ALREADY_DONE` 守门 + `LESSON_OVERLAP`）、`POST /makeup-lessons`（纯排期写 attendance makeup 行，不碰流水） |
