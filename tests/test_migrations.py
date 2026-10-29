@@ -50,28 +50,35 @@ def run_alembic(*args: str) -> None:
 
 
 def collect_schema(sync_connection: sa.Connection) -> dict[str, Any]:
-    """Read the migrated schema on the sync bridge of an async connection."""
+    """Read the migrated schema on the sync bridge of an async connection.
+
+    Table-level reflection is skipped when the database is empty, which is the
+    expected state right after ``alembic downgrade base``.
+    """
 
     inspector = sa.inspect(sync_connection)
     tables = set(inspector.get_table_names()) - {"alembic_version"}
-    diffs = compare_metadata(
-        MigrationContext.configure(sync_connection, opts={"compare_type": True}),
-        Base.metadata,
-    )
-    return {
-        "tables": tables,
-        "diffs": diffs,
-        "attendance_uniques": [
+    snapshot: dict[str, Any] = {"tables": tables}
+
+    if tables:
+        snapshot["diffs"] = compare_metadata(
+            MigrationContext.configure(sync_connection, opts={"compare_type": True}),
+            Base.metadata,
+        )
+        snapshot["attendance_uniques"] = [
             tuple(sorted(constraint["column_names"]))
             for constraint in inspector.get_unique_constraints("attendance")
-        ],
-        "ledger_columns": {column["name"] for column in inspector.get_columns("lesson_ledger")},
-        "business_tenant_columns": {
+        ]
+        snapshot["ledger_columns"] = {
+            column["name"] for column in inspector.get_columns("lesson_ledger")
+        }
+        snapshot["business_tenant_columns"] = {
             table_name: "tenant_id"
             in {column["name"] for column in inspector.get_columns(table_name)}
             for table_name in BUSINESS_TABLES
-        },
-    }
+        }
+
+    return snapshot
 
 
 async def snapshot() -> dict[str, Any]:
