@@ -74,6 +74,7 @@ alembic current          # 当前版本
 - 课程班级（2.1/2.2）：`/courses` CRUD（被班级引用后只能停用，删除返回 409 `COURSE_IN_USE`）、`/classes` CRUD（创建必填课程/老师/教室/学期起止，容量缺省继承教室且不得超过）、`/classes/{id}/students` 招收与退出（结课、非在读、满员、重复入班均拒绝，招收时锁班级行防并发超额）；老师对班级与名单同样自动收窄，非任教返回 404。
 - 课时包与缴费（2.3）：`POST /purchases` 内联课时包定义（课时数/赠课/有效期/实收），同一事务写 `purchase` + `purchase` 流水 + 独立 `grant` 赠课流水，包定义固化成快照；`GET /students/{id}/packages` 实时给出各包余额与状态（有效/已过期/已耗尽）。
 - 课时账本（2.4）：`GET /students/{id}/ledger` 流水分页、`GET /students/{id}/balance` 实时 `SUM(delta)`、`POST /ledger/adjustments` 必填原因且 delta ≠ 0；扣减服务按「先过期先扣 → 同日先购先扣」选包，`SELECT … FOR UPDATE` 锁学生名下有效包，单包不足拆多条 consume，余额不足整体回滚。
+- 退费/转班/补课（2.5）：`POST /refunds` 写一条 refund 负流水挂原包（剩余部分不隐式清零，包行加锁防并发打穿）；`POST /transfers` 同事务换 roster、**不产生流水**，跨课程班级直接 422（要跨课程先退费再购买）；`POST /lessons/{id}/make-ups` 补课 grant +1 流水（`lesson_id`=缺勤课次即防重键，同一缺勤只补一次），并把学生加进目标课次 attendance 名单（status=makeup 占位，阶段 3 接管）。
 - 家长自助绑定（1.6）：`POST /me/bindings` 凭邀请码在**同一事务**内消耗邀请码、建 `parent`、写 `parent_student` 并重签 JWT；解绑后下一次请求即失效（权限不做缓存）。
 
 登录发生在租户已知之前，而 `staff_account` 受 RLS 保护。系统不放宽 RLS、也不把 owner 连接交给 API，而是通过三个最小权限 `SECURITY DEFINER` 函数只按手机号/微信身份返回认证所需列；验证通过后所有业务查询仍走 `app_user` + 租户上下文。同一手机号在多个机构且密码相同时无法安全判定租户，登录按失败处理（后续可用机构码补强）。邀请码查码同理走 `auth_invite_code`，因为家长兑换时还没有租户上下文。
@@ -96,7 +97,7 @@ RUN_DB_TESTS=1 pytest
 
 GitHub Actions 在每次 push / pull request 时执行 Ruff 检查和 pytest，测试任务自带 PostgreSQL 16 服务容器；另有 Docker Compose 冒烟任务，真实构建并验证 `/health` 与 `/health/db`。
 
-测试分层（带真库时共 189 项）：
+测试分层（带真库时共 194 项）：
 
 | 文件 | 覆盖 |
 |------|------|
@@ -108,6 +109,7 @@ GitHub Actions 在每次 push / pull request 时执行 Ruff 检查和 pytest，�
 | `tests/test_course_classes.py` | 课程被引用禁删、教室/班级容量边界、结课与在读校验、名单即时收窄、跨租户 |
 | `tests/test_ledger.py` | 账实一致（20 赠 4 扣 8 = 16）、多包顺序与拆流水、同日先购先扣、过期包跳过、10 并发不超扣、adjust 原因/负余额、跨租户 404、对账脚本零差异 |
 | `tests/test_phase1_acceptance.py` | 阶段 1 验收：两租户 + 改 URL 参数 / 伪造 token / 猜 ID 遍历三种攻击全部 403/404 或空集 |
+| `tests/test_phase2_acceptance.py` | 阶段 2 验收：一个学生 ≥20 条混合流水（买/赠/扣/退/转/补/调），每步余额=SUM(delta) 且不为负、对账脚本零差异；退转补边界（超包 409 / 跨课程 422 / 重复补 409）；三种攻击复打 /purchases /refunds /transfers 全部 401/404 |
 
 本地演示数据（仅 `APP_ENV=local`，可重复执行）：
 
@@ -121,6 +123,8 @@ python -m scripts.seed_demo     # 演示机构 13000000001 / 平台运营 130000
 python -m scripts.reconcile_ledger          # 人类可读
 python -m scripts.reconcile_ledger --json   # 机器可读
 ```
+
+校验项（2.5 扩展后）：包余额 ↔ `SUM(delta)`、学生总额 ↔ 包之和、行形状（consume 必挂包+课次，其余必挂包）、**任何包余额不得为负**、每课次 consume 总量 ↔ 该课次 `attendance.deduct_lessons` 之和（阶段 3 签到接入前此条降级为 warning，只提示不计数）。warnings 单独计数、不影响退出码；**手动触发即可**，每日定时调度属部署阶段事项。
 
 ## 目录结构
 

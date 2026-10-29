@@ -7,7 +7,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-LedgerType = Literal["purchase", "grant", "consume", "adjust", "expire"]
+LedgerType = Literal["purchase", "grant", "consume", "adjust", "refund", "expire"]
 PackageStatus = Literal["active", "expired", "exhausted"]
 
 

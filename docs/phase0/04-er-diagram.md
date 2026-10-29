@@ -207,7 +207,7 @@ erDiagram
         UUID student_id FK
         UUID purchase_id FK "consume 必填 其余可空"
         UUID lesson_id FK "consume 必填 其余可空"
-        VARCHAR type "purchase/grant/consume/adjust/expire"
+        VARCHAR type "purchase/grant/consume/adjust/refund/expire"
         INT delta "正=增 负=减 只增不改"
         VARCHAR reason
         UUID operator_id

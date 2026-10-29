@@ -202,7 +202,7 @@
 
 ### 4.1 流水查询（2.4 已落地）
 - `GET /students/{student_id}/ledger`（?type=&page=&page_size=） — ✅教务/管理员；⚠️老师仅任教班级消耗流水；⚠️家长仅绑定孩子（家长端入口见 6.4）
-- **type 取值**：`purchase` / `grant` / `consume` / `adjust` / `expire`（`expire` 的自动任务在 2.5）。
+- **type 取值**：`purchase` / `grant` / `consume` / `adjust` / `refund` / `expire`（`expire` 的自动任务在部署阶段接入）。
 - **响应 200**：
 ```json
 { "items": [ { "id": "uuid", "type": "consume", "delta": -1, "purchase_id": "uuid",
@@ -237,9 +237,15 @@
 3. 总余额不足 → 409 `BALANCE_EXHAUSTED`，抛错前不写任何流水（无部分扣减）；
 4. 过期包（`expires_at < 今天`）不参与扣减，流水保留可查。
 
-### 4.5 对账脚本 — 2.4 已落地
-- `python -m scripts.reconcile_ledger [--json]`：用运行时角色（`DATABASE_URL`）逐租户 `set_config` 后核对——包视图 `remaining` ↔ 该 `purchase_id` 的 `SUM(delta)`、学生 `total` ↔ 包视图之和、`consume` 必带 `purchase_id`+`lesson_id`、非 consume 必带 `purchase_id`。
-- 退出码 0 = 零差异，1 = 有差异；本步已落地 `purchase` / `grant` / `consume` / `adjust`，`expire` 的自动任务随 2.5 接入。
+### 4.5 对账脚本 — 2.4 落地，2.5 扩展
+- `python -m scripts.reconcile_ledger [--json]`：用运行时角色（`DATABASE_URL`）逐租户 `set_config` 后核对——
+  1. 包视图 `remaining` ↔ 该 `purchase_id` 的 `SUM(delta)`（退费/调整后自动互核）；
+  2. 学生 `total` ↔ 包视图之和；
+  3. 行形状：`consume` 必带 `purchase_id`+`lesson_id`，其余类型（`purchase`/`grant`/`consume`/`adjust`/`refund`）必带 `purchase_id`；
+  4. **任何包 `remaining` 不得为负**（2.5 新增，refund/adjust 不得把包打穿）；
+  5. 每课次 `consume` 总量 ↔ 该课次 `attendance.deduct_lessons` 之和（2.5 新增，**阶段 3 签到接入前降级为 warning 不阻断**）。
+- 退出码 0 = 零差异，1 = 有差异；warnings 单独计数，不影响退出码。
+- **手动触发**（README 有说明）；每日定时调度属部署阶段事项，本步不内置。
 
 ## 5. 排课模块
 
@@ -302,18 +308,40 @@
 - **说明**：一处配置全机构生效，请假/缺勤通用；改动写操作审计记录；一期若无界面展示，仅服务端签到逻辑使用，家长端不展示。
 - **错误**：422 `RULE_VALUE_INVALID`（仅 none/deduct）。
 
-## 7. 交易模块
+## 7. 交易模块（退费/转班/补课，2.5 已落地）
 
-### 7.1 转班（US-210）
-- `POST /transfers` — ✅教务/管理员（留痕）
+> 全部走流水，禁止任何直改余额（清单 2.3 标准）：退费写一条 `refund` 负流水；转班只动 roster、**不产生流水**；补课写一条 `grant` 正流水。
+> 新增错误码：`422 REASON_REQUIRED`（沿 4.3）、`422 REFUND_LESSONS_INVALID`、`409 REFUND_EXCEEDS_PACKAGE`、`422 TRANSFER_COURSE_MISMATCH`、`422 MAKEUP_TARGET_INVALID`、`409 MAKEUP_ALREADY_GRANTED`、`409 MAKEUP_NO_ACTIVE_PACKAGE`；沿用 `404 STUDENT_NOT_FOUND` / `PURCHASE_NOT_FOUND` / `CLASS_NOT_FOUND` / `ENROLLMENT_NOT_FOUND` / `LESSON_NOT_FOUND`、`409 CLASS_ENDED` / `CLASS_FULL` / `ALREADY_ENROLLED`、`422 STUDENT_STATUS_INVALID`。
+
+### 7.1 转班（US-210）— 2.5 已落地
+- `POST /transfers` — ✅教务/管理员
 - **请求**：`{ "student_id": "uuid", "from_class_id": "uuid", "to_class_id": "uuid" }`
+- **响应 201**：`{ "student_id": "uuid", "from_class_id": "uuid", "to_class_id": "uuid", "joined_at": "2026-11-01" }`
+- **设计变更（2.5 决策，覆盖本节初稿）**：转班**不再写 `transfer` 流水**——转班只改变"剩余课时在哪消耗"，不改变"还剩多少"，写 0 值流水只会污染对账口径。同一事务内剔除原班 `class_enrollment`、写入新班，无中间态。
+- **跨课程班级二选一的落地选择**：两个班 `course_id` 不同 → **直接拒绝** 422 `TRANSFER_COURSE_MISMATCH`（不隐式先退后购）。理由：退费涉及金额与审批，不适合在转班里隐式发生；机构如需跨课程转移，明确走"先 `POST /refunds` 再 `POST /purchases`"两步，各自留痕。
+- **容量与结课校验复用 2.2**：转入班锁行（`FOR UPDATE`）后校验未结课、容量未满，并发转班不会超员。
+- **错误**：404 `ENROLLMENT_NOT_FOUND`（不在原班）；409 `ALREADY_ENROLLED`（已在目标班）；409 `CLASS_FULL`；409 `CLASS_ENDED`；422 `TRANSFER_COURSE_MISMATCH`。
+
+### 7.2 退费（US-211）— 2.5 已落地
+- `POST /refunds` — ✅教务/管理员
+- **请求**：`{ "student_id": "uuid", "purchase_id": "uuid", "refund_lessons": 2, "refund_amount": "240.00", "reason": "家长搬迁" }`
+- **响应 201**：`{ "id": "uuid", "type": "refund", "delta": -2, "purchase_id": "uuid", "reason": "退费 ¥240.00：家长搬迁", "operator_id": "uuid", "created_at": "…" }`
+- **说明**：同一事务写**一条** `refund` 负流水并指向原包；`refund_lessons` 明确表达"这几课时随退费作废"，**原包剩余部分不做隐式清零**。`refund_amount` 不落库（金额管理属二期），只进 reason 留痕。包行 `FOR UPDATE` 锁定，并发退费不能把包打穿。
+- **错误**：422 `REASON_REQUIRED`；422 `REFUND_LESSONS_INVALID`（≤0）；422 `AMOUNT_INVALID`（负数）；409 `REFUND_EXCEEDS_PACKAGE`（退的比该包剩余多）；404 `PURCHASE_NOT_FOUND` / `STUDENT_NOT_FOUND`。
+
+### 7.3 补课（US-212）— 2.5 已落地
+- `POST /lessons/{lesson_id}/make-ups` — ✅教务/管理员（`lesson_id` 为**缺勤课次**）
+- **请求**：`{ "student_id": "uuid", "target_lesson_id": "uuid" }`
 - **响应 201**：
 ```json
-{ "id": "uuid", "student_id": "uuid", "from_class_id": "uuid", "to_class_id": "uuid",
-  "ledger_entry": { "type": "transfer", "delta": 0, "reason": "A班→B班" } }
+{ "id": "uuid", "type": "grant", "delta": 1, "purchase_id": "uuid",
+  "lesson_id": "uuid-缺勤课次", "reason": "补课：缺勤 2026-11-01 19:00，转入 2026-11-08 19:00",
+  "target_lesson_id": "uuid", "operator_id": "uuid", "created_at": "…" }
 ```
-- **说明**：同一事务内——原班名单剔除、新班名单加入、写 `transfer` 流水（reason 留痕）；两班余额各按流水求和天然正确。
-- **错误**：409 `NOT_ENROLLED`（学生不在原班）；409 `CLASS_FULL`；422 `SAME_CLASS`。
+- **同一次缺勤只允许补一次**：补课 `grant` 流水的 `lesson_id` 恒为缺勤课次（其余 grant 的 `lesson_id` 一律为空），按 `(student_id, lesson_id, type='grant')` 查重即防重复补，无需新表；重复补 → 409 `MAKEUP_ALREADY_GRANTED`。
+- **挂包规则**：+1 挂到学生**有效期内的包中先到期者**（与扣减顺序一致，补回的课时最先被消耗）；无有效期内的包 → 409 `MAKEUP_NO_ACTIVE_PACKAGE`。
+- **名单关联**：学生加入目标课次 `attendance`（status=`makeup`、`deduct_lessons=0`）；已占座则跳过插入，阶段 3 签到状态机接手后自然生效。
+- **错误**：404 `LESSON_NOT_FOUND`（缺勤/目标课次不存在）；404 `ENROLLMENT_NOT_FOUND`（学生不在缺勤课次的班级）；422 `MAKEUP_TARGET_INVALID`（目标即缺勤本身）；409 `MAKEUP_ALREADY_GRANTED` / `MAKEUP_NO_ACTIVE_PACKAGE`；422 `STUDENT_STATUS_INVALID`。
 
 ## 8. 报表模块
 
@@ -382,4 +410,4 @@
 - 0.2 矩阵一期各 ✅/⚠️ 操作 ↔ 本文接口：档案 6 组（学生/家长/绑定/邀请码/老师/教室）、课程班级 5 组（课程/班级/名单/课时包/缴费）、账本 3 条（流水/余额/调整）、排课 3 条（规律/预检/调课）、签到 4 条（点名/结果/规则读/规则写）、交易 1 条（转班）、家长端 5 条（绑定/切换/课表/余额/明细）、机构配置 1 条（员工账号）、认证 3 条——**双向无遗漏**。
 - 报表/消息一期无接口（全二期），矩阵对应行均已标二期。
 - 全接口租户过滤方式统一（第 0 节），数据归属条件在各接口标注，与 0.2 矩阵 ⚠️ 条款一一对应。
-- **实现进度**：第 1 节认证、第 2 节档案、第 3.1~3.3 课程班级（2.1/2.2）、第 3.4~3.5 课时包与缴费、第 4 节账本（2.3/2.4，含扣减服务与对账脚本）已落地；排课/签到/交易/机构配置待后续步骤。
+- **实现进度**：第 1 节认证、第 2 节档案、第 3.1~3.3 课程班级（2.1/2.2）、第 3.4~3.5 课时包与缴费、第 4 节账本（2.3/2.4，含扣减服务与对账脚本）、第 7 节退费/转班/补课（2.5，含对账扩展）已落地；排课/签到/机构配置待阶段 3。

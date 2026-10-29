@@ -206,7 +206,7 @@
 | student_id | UUID | NOT NULL FK→student.id | |
 | purchase_id | UUID | FK→purchase.id；**consume 类型必填，其余类型可空** | 消费流水必须指明扣减的课时包 |
 | lesson_id | UUID | FK→lesson.id；**consume 类型必填，其余类型可空** | 消费对应课次；支撑 US-004 家长明细显示班级、流水与签到互查 |
-| type | VARCHAR(16) | NOT NULL | purchase/grant/consume/adjust/expire（refund/transfer 二期） |
+| type | VARCHAR(16) | NOT NULL | purchase/grant/consume/adjust/refund/expire（2.5：refund 一期落地；transfer 已取消——转班不写流水） |
 | delta | INT | NOT NULL | 正=增 负=减；只插不改 |
 | reason | VARCHAR(255) | | 调整/退费必填（US-209 留痕） |
 | operator_id | UUID | NOT NULL | 经办人 |
@@ -243,6 +243,8 @@
 > 注：课次时间重叠的数据库级防护将在阶段 3 用 PG 排他约束（`tstzrange` + `EXCLUDE USING gist`）实现，普通唯一索引不用于重叠校验。
 
 ### attendance（签到记录）｜签到｜一期
+
+> status 取值：阶段 3 签到状态机接入前，本表已由 2.5 补课写入 status=`makeup` 的占位行（学生加入目标课次名单，deduct_lessons=0）。
 索引：**`UK(tenant_id, lesson_id, student_id)` = 幂等键（红线三）**、`(tenant_id, student_id)`。
 | 字段 | 类型 | 约束 | 说明 |
 |------|------|------|------|
@@ -250,8 +252,8 @@
 | tenant_id | UUID | NOT NULL FK | |
 | lesson_id | UUID | NOT NULL FK→lesson.id | 幂等键之一 |
 | student_id | UUID | NOT NULL FK→student.id | 幂等键之一 |
-| status | VARCHAR(16) | NOT NULL | present/leave/absent（US-102） |
-| deduct_lessons | INT | NOT NULL 默认 0 | 本次扣课时（按 org_config 规则） |
+| status | VARCHAR(16) | NOT NULL | present/leave/absent（US-102）；makeup=补课占位（2.5） |
+| deduct_lessons | INT | NOT NULL 默认 0 | 本次扣课时（按 org_config 规则；补课占位行恒为 0） |
 | operator_id | UUID | NOT NULL | 点名/补录经办 |
 | created_at | TIMESTAMPTZ | 默认 now() | |
 
