@@ -14,6 +14,7 @@ from app.models.archive import (
 )
 from app.models.attendance import Attendance
 from app.models.course import Class, ClassEnrollment, Course, CoursePackage
+from app.models.holiday import TenantHoliday
 from app.models.ledger import LessonLedger
 from app.models.org import OrgConfig, StaffAccount
 from app.models.platform import Plan, Tenant, TenantSubscription, UsageMeter
@@ -36,7 +37,7 @@ WECHAT_TABLES: tuple[str, ...] = (
     "subscribe_auth",
 )
 
-#: Business layer (17) — every table carries ``tenant_id`` (red line 1).
+#: Business layer (18) — every table carries ``tenant_id`` (red line 1).
 BUSINESS_TABLES: tuple[str, ...] = (
     "student",
     "parent",
@@ -56,6 +57,7 @@ BUSINESS_TABLES: tuple[str, ...] = (
     "org_config",
     "refund",
     "invite_code",
+    "tenant_holiday",
 )
 
 #: Tables protected by RLS + FORCE RLS: all tenant-scoped business data, plus the
@@ -90,6 +92,7 @@ __all__ = [
     "SubscribeAuth",
     "Teacher",
     "Tenant",
+    "TenantHoliday",
     "TenantSubscription",
     "UsageMeter",
     "WechatOpenid",

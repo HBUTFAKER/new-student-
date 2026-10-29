@@ -75,7 +75,7 @@ async def test_migration_upgrade_downgrade_upgrade() -> None:
     run_alembic("upgrade", "head")
     migrated = await snapshot()
 
-    assert len(migrated["tables"]) == 25
+    assert len(migrated["tables"]) == 26
     assert migrated["tables"] == set(Base.metadata.tables)
     assert not migrated["diffs"], f"schema drift: {migrated['diffs'][:3]}"
     assert ("lesson_id", "student_id", "tenant_id") in migrated["attendance_uniques"]

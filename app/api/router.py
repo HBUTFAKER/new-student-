@@ -7,7 +7,9 @@ from app.api.routes import (
     auth,
     course,
     health,
+    holiday,
     ledger,
+    lesson,
     me,
     platform,
     schedule,
@@ -21,6 +23,8 @@ api_router.include_router(me.router)
 api_router.include_router(archive.router)
 api_router.include_router(course.router)
 api_router.include_router(schedule.router)
+api_router.include_router(holiday.router)
+api_router.include_router(lesson.router)
 api_router.include_router(ledger.router)
 api_router.include_router(trade.router)
 api_router.include_router(platform.router)
