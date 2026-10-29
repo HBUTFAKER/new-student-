@@ -250,6 +250,9 @@
 ## 5. 排课模块
 
 ### 5.1 规律排课（US-207）
+
+> ⚠️ **实现现状（3.1/3.2 已上线，与本节原始设计不同）**：本接口的响应不是 `generated_lessons`，课次生成也不在这里做。实际契约见 `08-implementation-delta.md` §2：`POST /schedule-rules` 只写规律，返回 `{ items, total }`；生成走独立的 `POST /lessons/generate`。
+
 - `POST /schedule-rules` — ✅教务/管理员
 - **请求**：`{ "class_id": "uuid", "classroom_id": "uuid", "teacher_id": "uuid", "weekday": 2, "start_time": "19:00:00", "end_time": "21:00:00", "start_date": "2026-11-02", "end_date": "2027-01-31" }`
 - **响应 201**：`{ "id": "uuid", "generated_lessons": 26 }`

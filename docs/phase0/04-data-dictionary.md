@@ -88,7 +88,7 @@
 
 ---
 
-## 业务层（17 张，均含 tenant_id）
+## 业务层（19 张，均含 tenant_id）
 
 ### student（学生）｜档案｜一期
 索引：`(tenant_id, status)`、`(tenant_id, name)`。
@@ -303,7 +303,10 @@
 
 ---
 
-## 表清单与交付对照（25 张）
+## 表清单与交付对照（26 张）
+
+> 本文原为 25 张（业务层 18）。`tenant_holiday` 为 3.2 实现时追加，故现为 26 张、业务层 19 张。
+> 实现与本文的偏离一律记在 `08-implementation-delta.md`，改表前先看那份。
 
 | 层 | 表 | 一期 | 二期 |
 |----|----|:---:|:---:|
@@ -313,6 +316,7 @@
 | 微信层 | subscribe_auth | | ✓ |
 | 业务层 | student / parent / teacher / classroom / course / class / class_enrollment / course_package / purchase / lesson_ledger / schedule_rule / lesson / attendance / parent_student / staff_account / org_config | ✓ | |
 | 业务层 | invite_code（1.6 追加，家长自助绑定凭证） | ✓ | |
+| 业务层 | tenant_holiday（3.2 追加，机构节假日） | ✓ | |
 | 业务层 | refund | | ✓ |
 
 ### `invite_code`（0.4 遗漏、1.6 追加）
@@ -329,4 +333,19 @@
 | created_by | UUID | 可空 FK→staff_account.id | 生成人 |
 | created_at | TIMESTAMPTZ | NOT NULL 默认 now() | |
 
-> 自检：业务层 18 张表全部含 tenant_id 且复合索引从 tenant_id 起；lesson_ledger 只增无余额列、consume 流水必挂 purchase_id 与 lesson_id；attendance 唯一键保证幂等；balance_snapshot 已移除；字段与 ER 图一一对应，无悬空表/字段。
+### `tenant_holiday`（0.4 遗漏、3.2 追加）
+
+机构节假日。课次批量生成时按日期跳过，属于「排课模块」的机构配置，一期。
+
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | UUID | PK 默认 gen_random_uuid() | |
+| tenant_id | UUID | NOT NULL FK→tenant.id | 复合索引从 tenant_id 起 |
+| date | DATE | NOT NULL，UNIQUE(tenant_id, date) | 放假日期，一天一行 |
+| name | VARCHAR(64) | NOT NULL | 如「国庆节」 |
+| created_at | TIMESTAMPTZ | NOT NULL 默认 now() | |
+
+> 模型属性名为 `holiday_date`（列名仍是 `date`），避免与 `datetime.date` 同名遮蔽。
+> 无 updated_at / deleted_at：节假日不做软删，DELETE 物理删除后重新登记即可（与 `invite_code` 同口径）。
+
+> 自检：业务层 19 张表全部含 tenant_id 且复合索引从 tenant_id 起；lesson_ledger 只增无余额列、consume 流水必挂 purchase_id 与 lesson_id；attendance 唯一键保证幂等；balance_snapshot 已移除；字段与 ER 图一一对应，无悬空表/字段。

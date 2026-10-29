@@ -3,7 +3,7 @@
 > 对应《学生信息管理系统_分步执行清单》步骤 0.4。
 > 技术栈：PostgreSQL + SQLAlchemy + Alembic。命名 snake_case、表名单数。
 > 配套字段字典：`04-data-dictionary.md`（外键/字段与本文一一对应）。
-> 三层共 25 张表：平台层 4、微信层 3、业务层 18（`invite_code` 为 1.6 实现时追加，见 `04-data-dictionary.md` §invite_code）。
+> 三层共 26 张表：平台层 4、微信层 3、业务层 19（`invite_code` 为 1.6 实现时追加、`tenant_holiday` 为 3.2 实现时追加，见 `04-data-dictionary.md` 对应小节与 `08-implementation-delta.md`）。
 
 ## 全局约定（所有图通用）
 
@@ -87,7 +87,7 @@ erDiagram
 
 > `wechat_openid` 唯一约束 `(app_id, openid)`；`subscribe_auth` 为二期消息触达预留（US-006/403）。
 
-## 三、业务层（17 张，每张含 tenant_id）
+## 三、业务层（19 张，每张含 tenant_id）
 
 ```mermaid
 erDiagram
@@ -296,7 +296,7 @@ erDiagram
 
 | 红线 | 表结构落点 |
 |------|------------|
-| 红线一：业务表带 tenant_id、复合索引从 tenant_id 起 | 业务层 17 张表全部含 `tenant_id`，字典中复合索引均以 `tenant_id` 前缀 |
+| 红线一：业务表带 tenant_id、复合索引从 tenant_id 起 | 业务层 19 张表全部含 `tenant_id`，字典中复合索引均以 `tenant_id` 前缀 |
 | 红线二：余额只能由流水变更 | `lesson_ledger` 只增（无 updated_at、无余额列）；余额 = `SUM(delta)` 实时计算，不引入快照表；consume 流水必须挂 `purchase_id`（扣哪个包）与 `lesson_id`（哪次课） |
 | 红线三：签到扣课同事务且幂等 | `attendance` 唯一约束 `(lesson_id, student_id)`，重复签到被唯一键拒绝；扣课与签到在同一事务 |
 
