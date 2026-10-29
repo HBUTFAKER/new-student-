@@ -37,12 +37,12 @@ ALTER TABLE student ENABLE ROW LEVEL SECURITY;
 ALTER TABLE student FORCE ROW LEVEL SECURITY;
 
 CREATE POLICY tenant_isolation_select ON student
-  FOR SELECT USING (tenant_id = current_setting('app.tenant_id')::uuid);
+  FOR SELECT USING (tenant_id = current_setting('app.tenant_id', true)::uuid);
 
 CREATE POLICY tenant_isolation_modify ON student
   FOR ALL
-  USING      (tenant_id = current_setting('app.tenant_id')::uuid)
-  WITH CHECK (tenant_id = current_setting('app.tenant_id')::uuid);
+  USING      (tenant_id = current_setting('app.tenant_id', true)::uuid)
+  WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);
 
 -- 应用连接角色：独立建号，非 owner、无 BYPASSRLS
 -- CREATE ROLE app_user LOGIN PASSWORD '...' NOSUPERUSER NOBYPASSRLS;
@@ -50,6 +50,7 @@ CREATE POLICY tenant_isolation_modify ON student
 ```
 
 - 迁移规范：新建任何业务表必须在同一迁移里附带 RLS enable/force + 两条策略，CI 做「无 RLS 业务表」检查。
+- `current_setting('app.tenant_id', true)` 第二参数 `true` 表示未设置时返回 NULL 而非报错；`tenant_id = NULL` 不成立，故**未设置租户上下文时策略按空集处理**（读不到任何行），这是预期行为，防止漏 SET 时全表暴露。
 
 ## 决策 3：租户上下文中间件 —— FastAPI 依赖注入 + SET app.tenant_id
 
@@ -77,7 +78,7 @@ def get_tenant_id(token: str = Depends(oauth2_scheme)) -> str:
 async def tenant_session(tid: str = Depends(get_tenant_id),
                          db=Depends(get_db)):
     # 每个请求一个事务，事务内 SET LOCAL，提交/回滚后自动失效
-    await db.execute(text("SET LOCAL app.tenant_id = :t"), {"t": tid})
+    await db.execute(text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tid})
     yield db
 ```
 
