@@ -10,6 +10,9 @@ from alembic import context
 from app.core.config import get_settings
 from app.db.base import Base
 
+# Register every model on Base.metadata before autogenerate compares schemas.
+from app import models  # noqa: F401  # isort: skip
+
 config = context.config
 target_metadata = Base.metadata
 

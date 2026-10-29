@@ -2,7 +2,7 @@
 
 面向培训/托管机构的多租户 SaaS 学生信息管理系统：管理端 Web + 家长端微信小程序。覆盖学生/家长/老师档案、课程班级与课时包、只增流水的课时账本、规律排课与冲突校验、签到扣课时（同事务+幂等）、退费/转班/补课、经营报表、家长端课表余额查询与课堂反馈、微信消息触达降级链（订阅消息→服务号→短信），以及机构自助开通的 SaaS 运营能力。
 
-当前处于 **阶段 1（工程脚手架）**。阶段 0 的七份设计文档已完成，业务表和业务接口从 1.2 起逐步落地。
+当前处于 **阶段 1（工程脚手架）**。阶段 0 的七份设计文档已完成；1.2 已按 0.4 字段字典落地 **24 张表**与初始 Alembic 迁移，业务接口从 1.3 起逐步实现。
 
 ## 技术栈
 
@@ -48,7 +48,19 @@ docker compose up -d db
 uvicorn app.main:app --reload
 ```
 
-Windows 没有 Docker 时，也可以让 `DATABASE_URL` 指向本机 PostgreSQL 16，再运行 `uvicorn`。Alembic revision 从 1.2 起添加，届时在启动前执行 `alembic upgrade head`。
+Windows 没有 Docker 时，也可以让 `DATABASE_URL` 指向本机 PostgreSQL 16，再运行 `uvicorn`。
+
+## 数据库迁移
+
+```bash
+alembic upgrade head     # 建 24 张表（含索引、唯一约束、RLS 策略）
+alembic downgrade base   # 回滚到空库
+alembic current          # 当前版本
+```
+
+初始迁移 `alembic/versions/0001_initial_schema.py` 与 `docs/phase0/04-data-dictionary.md` 一一对应：平台层 4 张、微信层 3 张、业务层 17 张。
+
+> **租户隔离现状**：迁移已为 18 张租户数据表启用 `ENABLE`/`FORCE ROW LEVEL SECURITY` 与读写两条策略，但当前连接仍使用建库账号（表属主），RLS 实际不生效，租户过滤由应用层 `tenant_id` 条件保证。按 0.3 决策 2，后续步骤需要引入独立的非 owner 应用角色。
 
 ## 测试与检查
 
@@ -58,7 +70,7 @@ ruff format --check .
 pytest
 ```
 
-`/health/db` 的真实数据库集成测试默认跳过；需要时设置 `RUN_DB_TESTS=1` 并提供可连接的 PostgreSQL：
+真实数据库相关的测试（`/health/db`、迁移 upgrade→downgrade→upgrade）默认跳过；需要时设置 `RUN_DB_TESTS=1` 并提供可连接的 PostgreSQL：
 
 ```bash
 RUN_DB_TESTS=1 pytest
@@ -85,11 +97,12 @@ GitHub Actions 在每次 push / pull request 时执行 Ruff 检查和 pytest，�
 │   │   ├── base.py          # SQLAlchemy DeclarativeBase
 │   │   ├── engine.py        # async engine
 │   │   └── session.py       # AsyncSession 依赖
-│   ├── models/              # ORM 模型（1.2 填充）
+│   ├── models/              # 24 张表：platform/wechat/archive/course/trade/ledger/schedule/attendance/org
+│   │   ├── mixins.py        # UUID 主键、created_at、tenant_id 公共列
 │   ├── schemas/             # Pydantic 模型
 │   └── services/            # 业务服务
-├── alembic/                 # 迁移环境（1.2 起生成 revision）
-├── tests/                   # pytest
+├── alembic/                 # 迁移环境（versions/0001_initial_schema.py）
+├── tests/                   # 模型自检 + 健康检查 + 迁移测试
 ├── docs/phase0/             # 阶段 0 设计文档
 ├── .github/workflows/ci.yml # lint + pytest
 ├── Dockerfile
