@@ -1,6 +1,7 @@
-"""Lesson schemas (3.2)."""
+"""Lesson schemas (3.2 / 3.3)."""
 
 from datetime import date, datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -13,6 +14,16 @@ class LessonGenerate(BaseModel):
     )
 
 
+class ConflictOut(BaseModel):
+    """3.3 冲突明细，type 按 老师→教室→学员 聚合，时间 +08:00。"""
+
+    type: Literal["teacher", "classroom", "student"]
+    lesson_id: UUID
+    class_id: UUID
+    start_at: datetime
+    end_at: datetime
+
+
 class LessonGenerationOut(BaseModel):
     class_id: UUID
     from_date: date
@@ -20,6 +31,8 @@ class LessonGenerationOut(BaseModel):
     generated: int
     skipped_holidays: int
     skipped_existing: int
+    skipped_conflicts: int = 0
+    conflicts: list[ConflictOut] = Field(default_factory=list)
 
 
 class LessonOut(BaseModel):

@@ -12,8 +12,13 @@ def _trace_id(request: Request) -> str:
     return getattr(request.state, "trace_id", "-")
 
 
-def _payload(request: Request, code: str, message: str) -> dict[str, dict[str, str]]:
-    return {"error": {"code": code, "message": message, "trace_id": _trace_id(request)}}
+def _payload(
+    request: Request, code: str, message: str, detail: dict | None = None
+) -> dict[str, dict]:
+    body: dict = {"code": code, "message": message, "trace_id": _trace_id(request)}
+    if detail:
+        body.update(detail)
+    return {"error": body}
 
 
 def install_error_handlers(app: FastAPI) -> None:
@@ -23,7 +28,7 @@ def install_error_handlers(app: FastAPI) -> None:
     async def handle_app_error(request: Request, exc: AppError) -> JSONResponse:
         return JSONResponse(
             status_code=exc.status_code,
-            content=_payload(request, exc.code, exc.message),
+            content=_payload(request, exc.code, exc.message, exc.detail),
             headers=exc.headers,
         )
 

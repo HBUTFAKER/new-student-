@@ -54,6 +54,8 @@ async def generate_lessons_endpoint(
         generated=result.generated,
         skipped_holidays=result.skipped_holidays,
         skipped_existing=result.skipped_existing,
+        skipped_conflicts=result.skipped_conflicts,
+        conflicts=[clash.to_dict() for clash in result.conflicts],
     )
 
 

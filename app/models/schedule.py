@@ -4,6 +4,7 @@ from datetime import date, datetime, time
 from uuid import UUID
 
 from sqlalchemy import Date, DateTime, ForeignKey, Index, Integer, String, Time, Uuid, text
+from sqlalchemy.dialects.postgresql import ExcludeConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -55,6 +56,21 @@ class Lesson(UUIDPrimaryKeyMixin, CreatedAtMixin, TenantMixin, Base):
         Index("ix_lesson_tenant_id_class_id_start_at", "tenant_id", "class_id", "start_at"),
         Index("ix_lesson_tenant_id_teacher_id_start_at", "tenant_id", "teacher_id", "start_at"),
         Index("ix_lesson_tenant_id_classroom_id_start_at", "tenant_id", "classroom_id", "start_at"),
+        # 3.3 数据库级排他约束（与 0009_lesson_exclude 迁移一一对应，别让 autogenerate 漂）。
+        ExcludeConstraint(
+            (text("teacher_id"), "="),
+            (text("tstzrange(start_at, end_at)"), "&&"),
+            using="gist",
+            where=text("status <> 'cancelled'"),
+            name="lesson_teacher_time_no_overlap",
+        ),
+        ExcludeConstraint(
+            (text("classroom_id"), "="),
+            (text("tstzrange(start_at, end_at)"), "&&"),
+            using="gist",
+            where=text("status <> 'cancelled'"),
+            name="lesson_classroom_time_no_overlap",
+        ),
     )
 
     class_id: Mapped[UUID] = mapped_column(

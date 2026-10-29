@@ -1,4 +1,4 @@
-"""Lesson generation from schedule rules (3.2).
+"""Lesson generation from schedule rules (3.2) and single insertion (3.3).
 
 Timezone: ``lesson.start_at`` is ``TIMESTAMPTZ``. Every value built here is
 aware and pinned to the same UTC+8 business zone the ledger uses for expiry
@@ -8,21 +8,27 @@ runs. Naive datetimes never reach the database.
 Idempotency: the existing ``start_at`` set of the class is read once before the
 loop, and every accepted candidate is added to that set immediately, so a
 repeated call (or two rules landing on the same slot) inserts nothing twice.
-Conflict detection across teachers/rooms/students is step 3.3 and is not done
-here.
+
+Conflict detection (3.3): the generator runs ``find_conflicts`` on every
+candidate and *skips* clashing slots (counting ``skipped_conflicts``) instead of
+failing the whole batch. The EXCLUDE constraints stay as a database backstop for
+the concurrency window where two transactions both pass the pre-check; a flush
+that hits exclusion violation ``23P01`` is surfaced as 409 ``SCHEDULE_CONFLICT``.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from uuid import UUID
 
 from sqlalchemy import Row, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError
 from app.models.archive import Classroom, Teacher
 from app.models.course import Class
 from app.models.schedule import Lesson, ScheduleRule
+from app.services.conflict import Conflict, find_conflicts
 from app.services.holiday import holiday_dates
 from app.services.ledger import BUSINESS_TZ, business_today
 
@@ -35,6 +41,8 @@ class GenerationResult:
     generated: int
     skipped_holidays: int
     skipped_existing: int
+    skipped_conflicts: int = 0
+    conflicts: list[Conflict] = field(default_factory=list)
 
 
 def day_start(day: date) -> datetime:
@@ -84,7 +92,8 @@ async def generate_lessons(
         )
     )
 
-    generated = skipped_holidays = skipped_existing = 0
+    generated = skipped_holidays = skipped_existing = skipped_conflicts = 0
+    conflicts: list[Conflict] = []
     lessons: list[Lesson] = []
     day = from_date
     while day <= to_date:
@@ -102,6 +111,19 @@ async def generate_lessons(
             if start_at in booked:
                 skipped_existing += 1
                 continue
+            end_at = datetime.combine(day, rule.end_time, tzinfo=BUSINESS_TZ)
+            clashes = await find_conflicts(
+                db,
+                classroom_id=rule.classroom_id,
+                teacher_id=rule.teacher_id,
+                class_id=class_id,
+                start_at=start_at,
+                end_at=end_at,
+            )
+            if clashes:
+                skipped_conflicts += 1
+                conflicts.extend(clashes)
+                continue
             lessons.append(
                 Lesson(
                     tenant_id=tenant_id,
@@ -109,7 +131,7 @@ async def generate_lessons(
                     classroom_id=rule.classroom_id,
                     teacher_id=rule.teacher_id,
                     start_at=start_at,
-                    end_at=datetime.combine(day, rule.end_time, tzinfo=BUSINESS_TZ),
+                    end_at=end_at,
                     status="normal",
                 )
             )
@@ -119,7 +141,12 @@ async def generate_lessons(
 
     if lessons:
         db.add_all(lessons)
-        await db.flush()
+        try:
+            await db.flush()
+        except IntegrityError as exc:
+            if getattr(exc.orig, "sqlstate", None) == "23P01":
+                raise AppError(409, "SCHEDULE_CONFLICT", "该时段与已有课次冲突") from exc
+            raise
 
     return GenerationResult(
         class_id=class_id,
@@ -128,7 +155,61 @@ async def generate_lessons(
         generated=generated,
         skipped_holidays=skipped_holidays,
         skipped_existing=skipped_existing,
+        skipped_conflicts=skipped_conflicts,
+        conflicts=conflicts,
     )
+
+
+async def create_lesson(
+    db: AsyncSession,
+    *,
+    tenant_id: UUID,
+    class_id: UUID,
+    classroom_id: UUID,
+    teacher_id: UUID,
+    start_at: datetime,
+    end_at: datetime,
+) -> Lesson:
+    """Insert a single lesson, rejecting any three-dimension clash with 409.
+
+    Used by the concurrency test now and the 3.4 single-add endpoint later.
+    The EXCLUDE constraints are the backstop: if the pre-check races and the
+    INSERT still violates exclusion, ``23P01`` is translated to 409.
+    """
+
+    clashes = await find_conflicts(
+        db,
+        classroom_id=classroom_id,
+        teacher_id=teacher_id,
+        class_id=class_id,
+        start_at=start_at,
+        end_at=end_at,
+    )
+    if clashes:
+        raise AppError(
+            409,
+            "SCHEDULE_CONFLICT",
+            "该时段与已有课次冲突",
+            detail={"conflicts": [clash.to_dict() for clash in clashes]},
+        )
+
+    lesson = Lesson(
+        tenant_id=tenant_id,
+        class_id=class_id,
+        classroom_id=classroom_id,
+        teacher_id=teacher_id,
+        start_at=start_at,
+        end_at=end_at,
+        status="normal",
+    )
+    db.add(lesson)
+    try:
+        await db.flush()
+    except IntegrityError as exc:
+        if getattr(exc.orig, "sqlstate", None) == "23P01":
+            raise AppError(409, "SCHEDULE_CONFLICT", "该时段与已有课次冲突") from exc
+        raise
+    return lesson
 
 
 def lesson_select():

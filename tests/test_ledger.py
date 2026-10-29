@@ -156,10 +156,14 @@ async def ledger_seed(owner_engine) -> LedgerSeed:
             student=student_id,
             joined=today,
         )
-        for lid, cid, teacher in (
-            (lesson_id, class_id, teacher_id),
-            (other_lesson_id, other_class_id, other_teacher_id),
+        base = datetime.now(UTC)
+        for offset, (lid, cid, teacher) in enumerate(
+            (
+                (lesson_id, class_id, teacher_id),
+                (other_lesson_id, other_class_id, other_teacher_id),
+            )
         ):
+            start = base + timedelta(hours=offset * 4)
             await _insert(
                 connection,
                 "INSERT INTO lesson (id, tenant_id, class_id, classroom_id, teacher_id, "
@@ -170,8 +174,8 @@ async def ledger_seed(owner_engine) -> LedgerSeed:
                 **{"class": cid},
                 room=classroom_id,
                 teacher=teacher,
-                start=datetime.now(UTC),
-                end=datetime.now(UTC) + timedelta(hours=2),
+                start=start,
+                end=start + timedelta(hours=2),
             )
         for sid, tid, role, phone, linked in (
             (admin_id, tenant_id, "admin", admin_phone, None),

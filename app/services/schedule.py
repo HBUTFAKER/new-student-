@@ -11,7 +11,7 @@ for the current tenant (404, never 403).
 """
 
 from collections.abc import Sequence
-from datetime import date, time
+from datetime import date, datetime, time, timedelta
 from uuid import UUID
 
 from sqlalchemy import Row, func, select
@@ -21,6 +21,8 @@ from app.core.errors import AppError
 from app.models.archive import Classroom, Teacher
 from app.models.course import Class
 from app.models.schedule import ScheduleRule
+from app.services.conflict import Conflict, find_conflicts
+from app.services.ledger import BUSINESS_TZ
 
 
 def ensure_time_range(start_time: time, end_time: time) -> None:
@@ -186,3 +188,49 @@ async def delete_rule(db: AsyncSession, rule_id: UUID) -> None:
     rule = await get_rule(db, rule_id)
     await db.delete(rule)
     await db.flush()
+
+
+async def validate_rule(
+    db: AsyncSession,
+    *,
+    class_id: UUID,
+    classroom_id: UUID,
+    teacher_id: UUID,
+    weekdays: Sequence[int],
+    start_time: time,
+    end_time: time,
+    start_date: date,
+    end_date: date,
+) -> list[Conflict]:
+    """3.3 预检：把规律展开成具体时段，跑三维度冲突检测，不落库。
+
+    与生成共用同一套校验（引用存在、班级未结课、老师在职）与同一套冲突
+    检测，但不写任何行。同一条已占用课次只报一次（按 lesson_id 去重）。
+    """
+
+    klass = await _get_class(db, class_id)
+    if klass.status == "ended":
+        raise AppError(409, "CLASS_ENDED", "班级已结课，不能再排课")
+    await _get_classroom(db, classroom_id)
+    await _get_teacher(db, teacher_id)
+
+    conflicts: list[Conflict] = []
+    seen: set[UUID] = set()
+    day = start_date
+    while day <= end_date:
+        if day.weekday() in weekdays:
+            start_at = datetime.combine(day, start_time, tzinfo=BUSINESS_TZ)
+            end_at = datetime.combine(day, end_time, tzinfo=BUSINESS_TZ)
+            for clash in await find_conflicts(
+                db,
+                classroom_id=classroom_id,
+                teacher_id=teacher_id,
+                class_id=class_id,
+                start_at=start_at,
+                end_at=end_at,
+            ):
+                if clash.lesson_id not in seen:
+                    seen.add(clash.lesson_id)
+                    conflicts.append(clash)
+        day += timedelta(days=1)
+    return conflicts

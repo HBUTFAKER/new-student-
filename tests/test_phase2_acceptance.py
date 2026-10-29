@@ -200,7 +200,9 @@ async def phase2_seed(client: httpx.AsyncClient, owner_engine) -> PhaseSeed:
             (lesson_missed, class_a, "missed"),
             (lesson_target, class_b, "target"),
         )
-        for lid, cid, _label in lesson_rows:
+        base = datetime.now(UTC)
+        for offset, (lid, cid, _label) in enumerate(lesson_rows):
+            start = base + timedelta(hours=offset * 4)
             await _insert(
                 connection,
                 "INSERT INTO lesson (id, tenant_id, class_id, classroom_id, teacher_id, "
@@ -211,8 +213,8 @@ async def phase2_seed(client: httpx.AsyncClient, owner_engine) -> PhaseSeed:
                 **{"class": cid},
                 room=classroom_id,
                 teacher=teacher_id,
-                start=datetime.now(UTC),
-                end=datetime.now(UTC) + timedelta(hours=2),
+                start=start,
+                end=start + timedelta(hours=2),
             )
         await _insert(
             connection,

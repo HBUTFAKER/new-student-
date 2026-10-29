@@ -11,9 +11,11 @@ class AppError(Exception):
         message: str,
         *,
         headers: dict[str, str] | None = None,
+        detail: dict | None = None,
     ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.code = code
         self.message = message
         self.headers = headers
+        self.detail = detail

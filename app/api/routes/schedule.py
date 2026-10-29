@@ -20,6 +20,7 @@ from app.schemas.schedule import (
     ScheduleRuleList,
     ScheduleRuleOut,
     ScheduleRuleUpdate,
+    ScheduleRuleValidateOut,
 )
 from app.services.schedule import (
     create_rules,
@@ -27,6 +28,7 @@ from app.services.schedule import (
     list_rules,
     rule_select,
     update_rule,
+    validate_rule,
 )
 
 router = APIRouter(tags=["schedule"])
@@ -108,6 +110,30 @@ async def list_schedule_rules(
         page_size=page_size,
     )
     return ScheduleRuleList(items=[_rule_view(row) for row in rows], total=total)
+
+
+@router.post(
+    "/schedule-rules/validate",
+    response_model=ScheduleRuleValidateOut,
+    summary="排课冲突预检（不落库）",
+)
+async def validate_schedule_rules(
+    payload: ScheduleRuleCreate, db: TenantDbSession, principal: OfficeUser
+) -> ScheduleRuleValidateOut:
+    conflicts = await validate_rule(
+        db,
+        class_id=payload.class_id,
+        classroom_id=payload.classroom_id,
+        teacher_id=payload.teacher_id,
+        weekdays=payload.resolved_weekdays(),
+        start_time=payload.start_time,
+        end_time=payload.end_time,
+        start_date=payload.start_date,
+        end_date=payload.resolved_end_date(),
+    )
+    return ScheduleRuleValidateOut(
+        ok=not conflicts, conflicts=[clash.to_dict() for clash in conflicts]
+    )
 
 
 @router.get("/schedule-rules/{rule_id}", response_model=ScheduleRuleOut, summary="排课规律详情")

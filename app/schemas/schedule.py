@@ -14,6 +14,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.schemas.lesson import ConflictOut
+
 Weekday = Annotated[int, Field(ge=0, le=6, description="0=周一 … 6=周日")]
 WeekdayList = Annotated[list[Weekday], Field(min_length=1, max_length=7)]
 
@@ -90,3 +92,10 @@ class ScheduleRuleOut(BaseModel):
 class ScheduleRuleList(BaseModel):
     items: list[ScheduleRuleOut]
     total: int
+
+
+class ScheduleRuleValidateOut(BaseModel):
+    """3.3 冲突预检：不落库，仅返回是否冲突与明细。"""
+
+    ok: bool
+    conflicts: list[ConflictOut] = Field(default_factory=list)
