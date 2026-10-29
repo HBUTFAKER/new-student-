@@ -31,6 +31,7 @@ ROLE_SCOPES = {
     "registrar": "tenant",
     "teacher": "teaching_classes",
     "parent": "bound_students",
+    "platform_admin": "platform",
 }
 
 
@@ -65,7 +66,7 @@ class TokenPair:
     active_student_id: UUID | None
 
 
-def _token_pair(
+def token_pair(
     *,
     subject_id: UUID,
     tenant_id: UUID | None,
@@ -208,8 +209,21 @@ async def resolve_principal(db: AsyncSession, claims: TokenClaims) -> Principal:
     record = await staff_by_id(db, claims.subject_id)
     if record is None or record.status != "active":
         raise AppError(401, "TOKEN_INVALID", "登录状态无效")
-    if record.role != claims.role or record.tenant_id != claims.tenant_id:
+    if record.role != claims.role:
         # A signature-valid token with stale or widened claims is still rejected.
+        raise AppError(401, "TOKEN_INVALID", "登录状态无效")
+
+    if record.role == "platform_admin":
+        if claims.tenant_id is not None:
+            raise AppError(401, "TOKEN_INVALID", "登录状态无效")
+        return Principal(
+            subject_id=record.id,
+            tenant_id=None,
+            role=record.role,
+            scope_type=ROLE_SCOPES["platform_admin"],
+        )
+
+    if record.tenant_id != claims.tenant_id:
         raise AppError(401, "TOKEN_INVALID", "登录状态无效")
 
     return Principal(
@@ -239,9 +253,9 @@ async def login_staff(db: AsyncSession, phone: str, password: str) -> TokenPair:
     if record.status != "active":
         raise AppError(401, "AUTH_FAILED", "账号已停用")
 
-    return _token_pair(
+    return token_pair(
         subject_id=record.id,
-        tenant_id=record.tenant_id,
+        tenant_id=None if record.role == "platform_admin" else record.tenant_id,
         role=record.role,
         teacher_id=record.teacher_id,
     )
@@ -340,7 +354,7 @@ async def login_wechat(
         if answer.student_status == "active":
             active = answer
 
-    pair = _token_pair(
+    pair = token_pair(
         subject_id=user.id,
         tenant_id=active.tenant_id if active else None,
         role="parent",
@@ -363,13 +377,13 @@ async def refresh_tokens(db: AsyncSession, refresh_token: str) -> TokenPair:
         ) from exc
     principal = await resolve_principal(db, claims)
     if principal.role == "parent":
-        return _token_pair(
+        return token_pair(
             subject_id=principal.subject_id,  # type: ignore[arg-type]
             tenant_id=principal.tenant_id,
             role="parent",
             active_student_id=principal.active_student_id,
         )
-    return _token_pair(
+    return token_pair(
         subject_id=principal.subject_id,  # type: ignore[arg-type]
         tenant_id=principal.tenant_id,
         role=principal.role,
@@ -390,7 +404,7 @@ async def switch_active_student(
     if target.student_status != "active":
         raise AppError(403, "OUT_OF_SCOPE", "孩子档案已归档")
 
-    return _token_pair(
+    return token_pair(
         subject_id=principal.subject_id,
         tenant_id=target.tenant_id,
         role="parent",

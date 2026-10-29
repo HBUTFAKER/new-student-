@@ -24,7 +24,7 @@ class StaffTokenResponse(BaseModel):
     token_type: str = "bearer"
     expires_in: int
     role: str
-    tenant_id: UUID
+    tenant_id: UUID | None
 
 
 class WechatTokenResponse(BaseModel):

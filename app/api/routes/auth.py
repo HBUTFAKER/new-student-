@@ -27,7 +27,7 @@ async def staff_login(payload: StaffLoginRequest, db: DbSession) -> StaffTokenRe
         refresh_token=pair.refresh_token,
         expires_in=pair.expires_in,
         role=pair.role,
-        tenant_id=pair.tenant_id,  # type: ignore[arg-type]
+        tenant_id=pair.tenant_id,
     )
 
 

@@ -21,6 +21,7 @@ class Tenant(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     """Training / hosting organisation (a tenant)."""
 
     __tablename__ = "tenant"
+    __table_args__ = (Index("ix_tenant_name", "name"),)
 
     # The dictionary marks a unique constraint on name as optional ("视运营需要");
     # it is intentionally not created so two organisations may share a display name.
