@@ -14,6 +14,33 @@
 
 ## §0 交接区（最新在最上面）
 
+### [3.3] 2026-10-30 06:15 · commit `d96c79d`（待 push，CI 待确认）
+
+**我改了什么**
+
+- 冲突检测三层防线：service 预检（`app/services/conflict.py` 的 `find_conflicts`）+ PG EXCLUDE 约束（迁移 `0009_lesson_exclude`）+ 并发测试。
+- 三维度：老师、教室、学员跨班（`class_enrollment` 子查询）。重叠判定 `start < other.end AND end > other.start`（边界相接不算），`status != cancelled` 不占位。
+- `POST /lessons/generate` 响应**追加** `skipped_conflicts` + `conflicts`（只加字段，旧字段语义不变），撞冲突跳过不中断。
+- 新增 `POST /schedule-rules/validate`：请求同 POST /schedule-rules，不落库，返回 `{ok, conflicts}`，OfficeUser。
+- 新增 `create_lesson`（service 层：预检 + EXCLUDE 兜底 409，带 conflicts 明细；供并发测试与 3.4 单次加课复用，本步不暴露路由）。
+- 错误信封支持 `detail`，409 `SCHEDULE_CONFLICT` 现在带 `conflicts` 数组。
+- 测试 8 项；全量 221 passed。
+
+**必须跟着改的地方**
+
+1. `tests/test_ledger.py` 与 `tests/test_phase2_acceptance.py` 的 fixture 原本「同教室 + `now()`」插多条 lesson，EXCLUDE 上线后必撞约束 → 已改为各错开 4h 时间（无对时间值的断言，不影响账本逻辑）。
+2. 迁移 0009 的存量重叠处理不是物理 DELETE（会撞 `lesson_ledger` 外键），改成 `UPDATE ... SET status='cancelled'`（保留 id 最小、软删）。
+3. 本步**不加表**，表数维持 26 / 业务层 19，`test_models`/`test_migrations` 数字不动。
+
+**给发令部的指令**
+
+- `Lesson.status` 只有 `normal` / `moved` / `cancelled`（默认 normal，无枚举）；冲突检测与 EXCLUDE 谓词都排 `cancelled`。
+- EXCLUDE 只加在 teacher、classroom 两维（`btree_gist` + `tstzrange`）；学员维度多对多做不了约束，靠预检 + 并发测试兜。
+- 任何「插入单条课次」的新入口（3.4 的 `POST /lessons`）必须复用 `create_lesson`（预检 + 23P01→409），别再手写先查后插。
+- 冲突明细结构 `{type, lesson_id, class_id, start_at, end_at}`，type 按 老师→教室→学员 聚合，时间 `+08:00`。
+
+---
+
 ### [3.2] 2026-10-30 05:05 · commit `4a90d5e`（已推送，CI 40956405018 全绿）
 
 **我改了什么**
@@ -135,10 +162,8 @@ DELETE /tenant-holidays/{id}                                             → 204
 
 | 项 | 出处 | 归属 |
 |----|------|------|
-| 冲突校验 409 `SCHEDULE_CONFLICT` / `LESSON_OVERLAP`（老师/教室/学生三维度） | 05 §5.1 | **3.3** |
-| `POST /schedule-rules/validate` 冲突预检 | 05 §5.2 | 3.3 |
-| PG `EXCLUDE` 时间重叠约束 | 05 §5.1 | 3.3 |
-| `POST /lessons`（单次加课）、`PATCH /lessons/{id}`（调课/取消） | 05 §5.3 | 后续 |
+| `POST /lessons`（单次加课，复用 `create_lesson`）、`PATCH /lessons/{id}`（调课/取消，status=moved/cancelled） | 05 §5.3 | 3.4 / 后续 |
+| `LESSON_OVERLAP` 独立错误码（当前统一用 `SCHEDULE_CONFLICT`） | 05 §5.1 | 后续按需 |
 
 ---
 
@@ -166,6 +191,9 @@ DELETE /tenant-holidays/{id}                                             → 204
 | 权限收口 | 排课/节假日/课次全部 `OfficeUser`（admin/registrar）；老师、家长 403 `OUT_OF_SCOPE` | 0.2 矩阵 |
 | 多租户 | `TenantDbSession` + RLS，`tenant_id` 由登录态注入；跨租户读改删一律 **404**（不是 403） | 0.3 |
 | 错误码 | 字段非法 422 / 引用不存在 404 / 状态冲突 409 | — |
+| 冲突重叠判定 | `start < other.end AND end > other.start`（边界相接不算）；`status != cancelled` 不占位 | 3.3 |
+| 冲突 409 | `SCHEDULE_CONFLICT`，`detail={"conflicts": [...]}`；EXCLUDE 违例 23P01 → 409 | 3.3 |
+| `Lesson.status` 取值 | `normal` / `moved` / `cancelled`（默认 normal，无枚举） | 3.3 |
 
 ---
 
@@ -177,3 +205,4 @@ DELETE /tenant-holidays/{id}                                             → 204
 | 3.1 | `0dd8267` | 排课规律 CRUD，`{items,total}` 契约；weekday 0–6 |
 | 3.2 | `4a90d5e` | `tenant_holiday` + `0008`；`POST /lessons/generate`；节假日三件套；测试数字 18→19、25→26 |
 | 文档 | `7e55f92` | 本文件建立；04/04-er/05 数字与契约提示修正 |
+| 3.3 | `d96c79d` | `find_conflicts` 三维度 + 迁移 `0009` EXCLUDE + `create_lesson` + `validate` 接口；生成响应加 `skipped_conflicts` |
