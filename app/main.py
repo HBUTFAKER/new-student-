@@ -9,6 +9,7 @@ from uuid import uuid4
 from fastapi import FastAPI, Request
 from starlette.responses import Response
 
+from app.api.errors import install_error_handlers
 from app.api.router import api_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging
@@ -41,6 +42,7 @@ def create_app() -> FastAPI:
     @application.middleware("http")
     async def request_logging(request: Request, call_next) -> Response:
         request_id = request.headers.get("X-Request-ID", uuid4().hex)
+        request.state.trace_id = request_id
         started_at = perf_counter()
         try:
             response = await call_next(request)
@@ -74,6 +76,7 @@ def create_app() -> FastAPI:
         return response
 
     application.include_router(api_router)
+    install_error_handlers(application)
     return application
 
 

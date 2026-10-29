@@ -21,6 +21,11 @@ class StaffAccount(UUIDPrimaryKeyMixin, CreatedAtMixin, TenantMixin, Base):
 
     name: Mapped[str] = mapped_column(String(64), nullable=False)
     phone: Mapped[str] = mapped_column(String(32), nullable=False)
+    # argon2id hash. Empty server default keeps the 24-table migration additive;
+    # login rejects empty hashes, and account creation must always set one.
+    password_hash: Mapped[str] = mapped_column(
+        String(255), nullable=False, server_default=text("''")
+    )
     role: Mapped[str] = mapped_column(String(16), nullable=False)
     # 老师角色关联任教身份（teacher.id）；教务/管理员为空。
     teacher_id: Mapped[UUID | None] = mapped_column(

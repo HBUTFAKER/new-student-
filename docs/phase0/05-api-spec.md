@@ -8,7 +8,7 @@
 
 - **租户过滤（全接口通用）**：`tenant_id` 由 JWT 服务端解析，经 `set_config('app.tenant_id', :t, true)` 注入事务，RLS 兜底；**任何接口不接收 tenant 参数**，请求中出现 `tenant_id` 字段一律忽略。
 - **数据归属（对象级鉴权）**：角色通过后再校验归属——老师仅任教班级、家长仅绑定孩子、教务/管理员本租户全量。越界对象一律 404/403。
-- **认证**：`Authorization: Bearer <JWT>`。JWT 载荷：`sub`（用户ID）、`tenant_id`、`role`（admin/registrar/teacher/parent）、`scope_type`（数据归属类型）；绑定孩子集合、任教班级由服务端每次实时查 DB（防止 token 内数据过期/被篡改扩大）。未绑定孩子的家长 token `tenant_id=NULL`，仅可访问 `/me/bindings`、`/me/students`、`/me/active-student` 三个绑定相关接口，访问业务数据一律 403（对齐 0.6）。
+- **认证**：`Authorization: Bearer <JWT>`。JWT 载荷：`sub`（用户ID）、`tenant_id`、`role`（admin/registrar/teacher/parent）、`scope_type`（数据归属类型）；绑定孩子集合、任教班级由服务端每次实时查 DB（防止 token 内数据过期/被篡改扩大）。access token 默认 2h，refresh token 默认 30d，二者用 `type` 声明区分。未绑定孩子的家长 token `tenant_id=NULL`，仅可访问 `/me/bindings`、`/me/students`、`/me/active-student` 三个绑定相关接口，访问业务数据一律 403（对齐 0.6）。
 - **错误格式**：
 ```json
 { "error": { "code": "STUDENT_NOT_FOUND", "message": "学生不存在", "trace_id": "8f3a…" } }
@@ -25,19 +25,20 @@
 ### 1.1 `POST /auth/login` — 员工账密登录
 - **权限**：公开（机构内员工）。
 - **请求**：`{ "phone": "13800000000", "password": "…" }`
-- **响应 200**：`{ "access_token": "eyJ…", "token_type": "bearer", "expires_in": 7200, "role": "registrar", "tenant_id": "uuid" }`
+- **响应 200**：`{ "access_token": "eyJ…", "refresh_token": "eyJ…", "token_type": "bearer", "expires_in": 7200, "role": "registrar", "tenant_id": "uuid" }`
 - **错误**：401 `{ "error": { "code": "AUTH_FAILED", "message": "手机号或密码错误" } }`
+- **说明**：手机号仅租户内唯一。同一手机号命中多个租户时，用密码匹配唯一账号；若仍无法唯一判定，按 `AUTH_FAILED` 拒绝，后续以机构码补强。
 
 ### 1.2 `POST /auth/wechat-login` — 家长微信登录
 - **权限**：公开。code 换 openid/unionid，定位 `wechat_user`；新用户自动建 `wechat_user`。家长 JWT 的 tenant_id 取当前激活孩子所属机构；无绑定/未选择孩子时为 NULL，仅开放绑定与孩子集合接口（详见 0.6）。
 - **请求**：`{ "wx_code": "wechat_jscode" }`
-- **响应 200**：`{ "access_token": "eyJ…", "role": "parent", "bound_students": 0 }`
-- **错误**：401 `{ "error": { "code": "WX_AUTH_FAILED", "message": "微信授权失败" } }`
+- **响应 200**：`{ "access_token": "eyJ…", "refresh_token": "eyJ…", "token_type": "bearer", "expires_in": 7200, "role": "parent", "tenant_id": "uuid|null", "active_student_id": "uuid|null", "bound_students": 0 }`
+- **错误**：401 `{ "error": { "code": "WX_AUTH_FAILED", "message": "微信授权失败" } }`；401 `WX_IDENTITY_CONFLICT`（本次 unionid 与已存身份冲突，停止自动归并）
 
 ### 1.3 `POST /auth/refresh` — 刷新 token
 - **权限**：持有效 refresh_token。
 - **请求**：`{ "refresh_token": "eyJ…" }`
-- **响应 200**：`{ "access_token": "eyJ…" }`；**错误**：401 `TOKEN_EXPIRED`。
+- **响应 200**：`{ "access_token": "eyJ…", "refresh_token": "eyJ…", "token_type": "bearer", "expires_in": 7200 }`；**错误**：401 `TOKEN_EXPIRED` / `TOKEN_INVALID`
 
 ## 2. 档案模块
 
@@ -279,9 +280,9 @@
 
 ### 9.2 绑定孩子列表与切换（US-010）
 - `GET /me/students` — ⚠️家长：仅返回当前微信号绑定集合
-- **响应 200**：`{ "items": [ { "student_id": "uuid", "student_name": "王小明", "active": true } ] }`
+- **响应 200**：`{ "items": [ { "student_id": "uuid", "student_name": "王小明", "tenant_id": "uuid", "tenant_name": "示例机构", "relation": "家长", "active": true } ] }`
 - `POST /me/active-student` — ⚠️家长：目标必须在绑定集合内（V-08：集合外 403）
-- **请求**：`{ "student_id": "uuid" }`；**响应 200**：`{ "active_student_id": "uuid", "access_token": "eyJ…（重签，含新 tenant_id）" }`（切换后必须重签 JWT，使 tenant_id 跟随当前孩子所属机构，见 0.6）
+- **请求**：`{ "student_id": "uuid" }`；**响应 200**：`{ "active_student_id": "uuid", "tenant_id": "uuid", "access_token": "eyJ…（重签，含新 tenant_id）", "refresh_token": "eyJ…", "token_type": "bearer", "expires_in": 7200 }`（切换后必须重签 JWT，使 tenant_id 跟随当前孩子所属机构，见 0.6）
 - **错误**：403 `OUT_OF_BINDING_SET`。
 
 ### 9.3 周课表（US-002）

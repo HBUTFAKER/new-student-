@@ -59,9 +59,20 @@ alembic downgrade base   # 回滚到空库
 alembic current          # 当前版本
 ```
 
-初始迁移 `alembic/versions/0001_initial_schema.py` 与 `docs/phase0/04-data-dictionary.md` 一一对应：平台层 4 张、微信层 3 张、业务层 17 张。`0002_rls_app_role.py` 创建非 superuser、非 owner、无 `BYPASSRLS` 的 `app_user` 并授予业务表 DML。
+初始迁移 `alembic/versions/0001_initial_schema.py` 与 `docs/phase0/04-data-dictionary.md` 一一对应：平台层 4 张、微信层 3 张、业务层 17 张。`0002_rls_app_role.py` 创建非 superuser、非 owner、无 `BYPASSRLS` 的 `app_user` 并授予业务表 DML；`0003_auth_identity.py` 增加 `staff_account.password_hash` 与三个认证专用 `SECURITY DEFINER` 查询函数。
 
 > **租户隔离**：18 张租户数据表均启用 `ENABLE`/`FORCE ROW LEVEL SECURITY`。运行时 `DATABASE_URL` 必须使用 `app_user`；`MIGRATION_DATABASE_URL` 仅供 Alembic 执行 DDL。每个租户事务以 `SELECT set_config('app.tenant_id', :tenant_id, true)` 设置上下文，事务结束自动清除，连接归还连接池时 rollback，不残留到下一个请求。
+
+## 认证与权限
+
+- `POST /auth/login`：员工手机号 + 密码，argon2id 校验，签发 access/refresh JWT（HS256，默认 2h/30d）。
+- `POST /auth/refresh`：refresh token 换新 access token；过期返回 401 `TOKEN_EXPIRED`。
+- `POST /auth/wechat-login`：家长微信登录，`jscode2session` 封装为可替换客户端；local/test 默认桩模式，无需真实 appid。
+- `POST /me/active-student`：切换孩子前实时复核绑定集合，重签含目标 `tenant_id` 的 JWT；`GET /me/students` 返回本人跨机构绑定孩子。
+
+登录发生在租户已知之前，而 `staff_account` 受 RLS 保护。系统不放宽 RLS、也不把 owner 连接交给 API，而是通过三个最小权限 `SECURITY DEFINER` 函数只按手机号/微信身份返回认证所需列；验证通过后所有业务查询仍走 `app_user` + 租户上下文。同一手机号在多个机构且密码相同时无法安全判定租户，登录按失败处理（后续可用机构码补强）。
+
+JWT 内的角色和租户在每次请求都会回库复核：签名有效但角色被篡改、租户被替换、账号停用或孩子解绑，一律 401/403。
 
 ## 测试与检查
 
@@ -91,17 +102,20 @@ GitHub Actions 在每次 push / pull request 时执行 Ruff 检查和 pytest，�
 │   │   └── routes/
 │   │       └── health.py    # /health、/health/db
 │   ├── core/
+│   │   ├── auth.py          # Principal 身份契约
 │   │   ├── config.py        # pydantic-settings
+│   │   ├── errors.py        # AppError
 │   │   ├── logging.py       # JSON 结构化日志
-│   │   └── security.py      # 认证占位（1.2 起实现）
+│   │   └── security.py      # argon2 密码哈希 + JWT 签发/校验
 │   ├── db/
 │   │   ├── base.py          # SQLAlchemy DeclarativeBase
 │   │   ├── engine.py        # async engine
-│   │   └── session.py       # AsyncSession 依赖
+│   │   ├── session.py       # AsyncSession 依赖
+│   │   └── tenant.py        # 事务级租户上下文
 │   ├── models/              # 24 张表：platform/wechat/archive/course/trade/ledger/schedule/attendance/org
 │   │   ├── mixins.py        # UUID 主键、created_at、tenant_id 公共列
-│   ├── schemas/             # Pydantic 模型
-│   └── services/            # 业务服务
+│   ├── schemas/             # Pydantic 模型（auth/me）
+│   └── services/            # 业务服务（auth/wechat）
 ├── alembic/                 # 迁移环境（versions/0001_initial_schema.py）
 ├── tests/                   # 模型自检 + 健康检查 + 迁移测试
 ├── docs/phase0/             # 阶段 0 设计文档
