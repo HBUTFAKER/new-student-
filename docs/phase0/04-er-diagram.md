@@ -12,6 +12,7 @@
 - 平台层不强制 `tenant_id`（`tenant` 表自身除外）；微信层 `subscribe_auth` 带 `tenant_id`。
 - 课时流水 `lesson_ledger` 为**只增**设计：无 `updated_at`、无可变余额列，余额 = `SUM(delta)`（红线二）。**一期余额一律实时 SUM(delta) 计算，不引入快照表；快照表留到有性能需要时再引入**（本版已移除 balance_snapshot）。
 - 签到 `attendance` 对 `(lesson_id, student_id)` 建唯一约束 = 幂等键（红线三）。
+- **单校区模型**：一个租户即一个校区，**不建校区表（campus/branch）**，教室、班级、老师直接挂 `tenant_id`。多校区需求出现时以「租户 + 校区」两级扩展，届时不改现有表结构，只加 `campus_id` 维度。
 
 ---
 

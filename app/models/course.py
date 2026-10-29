@@ -22,13 +22,16 @@ from app.models.mixins import CreatedAtMixin, TenantMixin, UUIDPrimaryKeyMixin
 
 
 class Course(UUIDPrimaryKeyMixin, CreatedAtMixin, TenantMixin, Base):
-    """课程定义。"""
+    """课程模板（2.1）。被班级引用后只能停用，不能删除。"""
 
     __tablename__ = "course"
     __table_args__ = (Index("ix_course_tenant_id", "tenant_id"),)
 
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     subject: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    duration_min: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    remark: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, server_default=text("'active'"))
 
 
 class Class(UUIDPrimaryKeyMixin, CreatedAtMixin, TenantMixin, Base):
@@ -39,6 +42,7 @@ class Class(UUIDPrimaryKeyMixin, CreatedAtMixin, TenantMixin, Base):
         Index("ix_class_tenant_id_course_id", "tenant_id", "course_id"),
         Index("ix_class_tenant_id_teacher_id", "tenant_id", "teacher_id"),
         Index("ix_class_tenant_id_classroom_id", "tenant_id", "classroom_id"),
+        Index("ix_class_tenant_id_status", "tenant_id", "status"),
     )
 
     course_id: Mapped[UUID] = mapped_column(
@@ -52,6 +56,9 @@ class Class(UUIDPrimaryKeyMixin, CreatedAtMixin, TenantMixin, Base):
     )
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     capacity: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    term_start: Mapped[date | None] = mapped_column(Date, nullable=True)
+    term_end: Mapped[date | None] = mapped_column(Date, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, server_default=text("'active'"))
 
 
 class ClassEnrollment(UUIDPrimaryKeyMixin, CreatedAtMixin, TenantMixin, Base):

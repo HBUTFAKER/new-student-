@@ -27,8 +27,6 @@ from app.schemas.archive import (
     BindingCreate,
     BindingList,
     BindingOut,
-    ClassList,
-    ClassOut,
     ClassroomCreate,
     ClassroomList,
     ClassroomOut,
@@ -503,22 +501,5 @@ async def list_invite_codes(
 
 
 # ---------------------------------------------------------------- classes (read)
-
-
-@router.get("/classes", response_model=ClassList, summary="班级列表（老师自动收窄）")
-async def list_classes(
-    db: TenantDbSession,
-    principal: TeacherOrOffice,
-    page: Page = 1,
-    page_size: PageSize = 20,
-) -> ClassList:
-    stmt = select(Class)
-    if principal.role == "teacher":
-        stmt = stmt.where(Class.teacher_id == principal.teacher_id)
-    total = await _count(db, stmt)
-    rows = await db.scalars(
-        stmt.order_by(Class.created_at.desc(), Class.id)
-        .offset((page - 1) * page_size)
-        .limit(page_size)
-    )
-    return ClassList(items=[ClassOut.model_validate(row) for row in rows], total=total)
+# GET /classes now lives in app/api/routes/course.py (2.2), where the class
+# payload carries course / teacher / classroom names and the live roster size.

@@ -161,20 +161,3 @@ class InviteCodeOut(BaseModel):
 
 class InviteCodeList(BaseModel):
     items: list[InviteCodeOut]
-
-
-class ClassOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: UUID
-    name: str
-    course_id: UUID
-    teacher_id: UUID
-    classroom_id: UUID
-    capacity: int | None
-    created_at: datetime
-
-
-class ClassList(BaseModel):
-    items: list[ClassOut]
-    total: int

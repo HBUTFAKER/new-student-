@@ -120,34 +120,51 @@
 
 ## 3. 课程班级模块
 
+> **2.1/2.2 落地说明**：3.1 课程、3.2 班级、3.3 学员名单全部实现（`app/api/routes/course.py`）。口径：
+> - 课程新增 `duration_min`（单次时长，分钟）、`remark`、`status`（active/inactive）；**被班级引用后不可删除**，只能停用。
+> - 班级新增 `term_start`/`term_end`（学期起止，创建必填）与 `status`（active/ended）；容量缺省时继承教室容量。
+> - 单校区，不建校区表（见 04-er-diagram 全局约定）。
+> - 新增错误码：`409 COURSE_IN_USE`、`404 CLASS_NOT_FOUND`、`404 CLASSROOM_NOT_FOUND`、`422 TERM_INVALID`、`422 TEACHER_INACTIVE`、`409 CLASS_ENDED`、`422 STUDENT_STATUS_INVALID`、`404 ENROLLMENT_NOT_FOUND`；沿用 `422 CAPACITY_INVALID`（班级容量 > 教室容量）、`422 CAPACITY_EXCEEDED`（容量低于已报名人数）、`409 CLASS_FULL`、`409 ALREADY_ENROLLED`。
+> - 老师侧仍为默认收窄：`/classes`、`/classes/{id}`、`/classes/{id}/students` 对 teacher 按 `Class.teacher_id` 过滤，非任教一律 404（不泄露存在性）。
+
 ### 3.1 课程
 | 接口 | 权限 |
 |------|------|
-| `POST /courses` / `GET /courses` / `PATCH /courses/{id}` | ✅教务/管理员 |
+| `POST /courses` | ✅教务/管理员 |
+| `GET /courses`（?status=&keyword=&page=） | ✅教务/管理员 |
+| `GET /courses/{id}` | ✅教务/管理员 |
+| `PATCH /courses/{id}`（停用=status=inactive） | ✅教务/管理员 |
+| `DELETE /courses/{id}`（被班级引用则 409） | ✅教务/管理员 |
 
-- **请求**：`{ "name": "初三物理冲刺", "subject": "物理" }`；**响应 201**：`{ "id": "uuid", "name": "初三物理冲刺" }`
+- **POST 请求**：`{ "name": "初三物理冲刺", "subject": "物理", "duration_min": 90, "remark": "周五晚" }`
+- **POST 响应 201**：`{ "id": "uuid", "name": "初三物理冲刺", "subject": "物理", "duration_min": 90, "remark": "周五晚", "status": "active", "created_at": "…" }`
+- **DELETE**：未被引用返回 204；被班级引用返回 `409 { "code": "COURSE_IN_USE" }`，数据不动。
+- **错误**：404 `COURSE_NOT_FOUND`；409 `COURSE_IN_USE`；422 `VALIDATION_ERROR`。
 
 ### 3.2 班级
 | 接口 | 权限 |
 |------|------|
-| `POST /classes`（course_id+teacher_id+classroom_id+capacity） | ✅教务/管理员 |
-| `GET /classes`（?course_id=&page=） | ✅教务/管理员；⚠️老师：结果自动收窄为任教班级 |
-| `PATCH /classes/{id}` | ✅教务/管理员 |
+| `POST /classes`（course_id+teacher_id+classroom_id+term_start/end+capacity） | ✅教务/管理员 |
+| `GET /classes`（?course_id=&teacher_id=&status=&page=） | ✅教务/管理员；⚠️老师：结果自动收窄为任教班级 |
+| `GET /classes/{id}` | ✅教务/管理员；⚠️老师仅任教班级，否则 404 |
+| `PATCH /classes/{id}`（换老师/教室/容量/学期/status） | ✅教务/管理员 |
 
-- **请求**：`{ "course_id": "uuid", "teacher_id": "uuid", "classroom_id": "uuid", "name": "冲刺A班", "capacity": 12 }`
-- **响应 201**：`{ "id": "uuid", "name": "冲刺A班", "capacity": 12 }`
-- **错误**：422 `CAPACITY_EXCEEDED`（容量低于已报人数）。
-- **进度**：`GET /classes` 已随 1.6 落地（只读，老师自动收窄为任教班级）；`POST`/`PATCH` 待 1.7 课程班级模块。
+- **请求**：`{ "course_id": "uuid", "teacher_id": "uuid", "classroom_id": "uuid", "name": "冲刺A班", "term_start": "2026-09-01", "term_end": "2027-01-15", "capacity": 12 }`
+- **响应 201**：`{ "id": "uuid", "name": "冲刺A班", "course_id": "uuid", "course_name": "初三物理冲刺", "teacher_id": "uuid", "teacher_name": "李老师", "classroom_id": "uuid", "classroom_name": "多媒体教室", "classroom_capacity": 40, "capacity": 12, "enrolled": 0, "term_start": "2026-09-01", "term_end": "2027-01-15", "status": "active", "created_at": "…" }`（`capacity` 缺省=教室容量；`enrolled` 为实时人数）
+- **PATCH 规则**：换教室同样校验 `capacity ≤ 新教室容量`；容量不得低于已报名人数；`term_end` 不得早于 `term_start`。
+- **错误**：404 `COURSE_NOT_FOUND` / `TEACHER_NOT_FOUND` / `CLASSROOM_NOT_FOUND` / `CLASS_NOT_FOUND`；422 `CAPACITY_INVALID`（超教室容量）、`CAPACITY_EXCEEDED`（低于在读人数）、`TERM_INVALID`、`TEACHER_INACTIVE`（老师已停用）。
 
 ### 3.3 班级学员名单
 | 接口 | 权限 |
 |------|------|
 | `GET /classes/{id}/students` | ✅教务/管理员；⚠️老师仅任教班级（US-101 名单） |
-| `POST /classes/{id}/students` | ✅教务/管理员 |
-| `DELETE /classes/{id}/students/{student_id}` | ✅教务/管理员 |
+| `POST /classes/{id}/students`（招收） | ✅教务/管理员 |
+| `DELETE /classes/{id}/students/{student_id}`（退出） | ✅教务/管理员 |
 
-- **POST 请求**：`{ "student_id": "uuid" }`；**响应 201**：`{ "id": "uuid", "joined_at": "2026-11-01" }`
-- **错误**：409 `ALREADY_ENROLLED`；409 `CLASS_FULL`（超出班级容量）。
+- **POST 请求**：`{ "student_id": "uuid" }`；**响应 201**：`{ "id": "uuid", "student_id": "uuid", "student_name": "王小明", "student_status": "active", "joined_at": "2026-11-01" }`
+- **招收校验**：班级未结课（`status=ended` 或 `term_end` 已过 → 409 `CLASS_ENDED`）；学生状态在读（否则 422 `STUDENT_STATUS_INVALID`）；容量未满（否则 409 `CLASS_FULL`）；重复入班 409 `ALREADY_ENROLLED`。招收时对班级行加锁，避免并发超额。
+- **DELETE 响应 204**；学生不在本班返回 404 `ENROLLMENT_NOT_FOUND`。
+- **即时生效**：退出后老师的任教班级范围与学员名单在下一次请求立即收窄（不做归属缓存）；家长绑定集合是另一条关系，独立实时复核。
 
 ### 3.4 课时包
 | 接口 | 权限 |
@@ -340,3 +357,4 @@
 - 0.2 矩阵一期各 ✅/⚠️ 操作 ↔ 本文接口：档案 6 组（学生/家长/绑定/邀请码/老师/教室）、课程班级 5 组（课程/班级/名单/课时包/缴费）、账本 3 条（流水/余额/调整）、排课 3 条（规律/预检/调课）、签到 4 条（点名/结果/规则读/规则写）、交易 1 条（转班）、家长端 5 条（绑定/切换/课表/余额/明细）、机构配置 1 条（员工账号）、认证 3 条——**双向无遗漏**。
 - 报表/消息一期无接口（全二期），矩阵对应行均已标二期。
 - 全接口租户过滤方式统一（第 0 节），数据归属条件在各接口标注，与 0.2 矩阵 ⚠️ 条款一一对应。
+- **实现进度**：第 1 节认证、第 2 节档案、第 3.1~3.3 课程班级（2.1/2.2）已落地；课时包/缴费/账本/排课/签到/交易/机构配置待后续步骤。

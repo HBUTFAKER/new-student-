@@ -142,9 +142,12 @@
 | tenant_id | UUID | NOT NULL FK | |
 | name | VARCHAR(128) | NOT NULL | |
 | subject | VARCHAR(64) | | |
+| duration_min | INT | | 单次时长（分钟，2.1 追加） |
+| remark | VARCHAR(255) | | 备注（2.1 追加） |
+| status | VARCHAR(16) | NOT NULL 默认 'active' | active/inactive；被班级引用后只能停用（2.1 追加） |
 
 ### class（班级）｜课程班级｜一期
-索引：`(tenant_id, course_id)`、`(tenant_id, teacher_id)`、`(tenant_id, classroom_id)`。
+索引：`(tenant_id, course_id)`、`(tenant_id, teacher_id)`、`(tenant_id, classroom_id)`、`(tenant_id, status)`。
 | 字段 | 类型 | 约束 | 说明 |
 |------|------|------|------|
 | id | UUID | PK | |
@@ -153,7 +156,10 @@
 | teacher_id | UUID | NOT NULL FK→teacher.id | |
 | classroom_id | UUID | NOT NULL FK→classroom.id | |
 | name | VARCHAR(128) | NOT NULL | |
-| capacity | INT | | 班级容量（US-204） |
+| capacity | INT | | 班级容量（US-204），缺省=教室容量，且 ≤ 教室容量 |
+| term_start | DATE | | 学期开始（2.2 追加，接口必填） |
+| term_end | DATE | | 学期结束（2.2 追加，接口必填） |
+| status | VARCHAR(16) | NOT NULL 默认 'active' | active/ended（2.2 追加） |
 
 ### class_enrollment（班级学员）｜课程班级｜一期
 索引：`UK(tenant_id, class_id, student_id)`、`(tenant_id, student_id)`。
