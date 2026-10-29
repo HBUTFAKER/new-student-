@@ -184,20 +184,21 @@
 | valid_months | INT | NOT NULL | 有效期·购后 N 月（US-205） |
 
 ### purchase（购课记录）｜交易｜一期
-索引：`(tenant_id, student_id)`、`(tenant_id, package_id)`。
+索引：`(tenant_id, student_id)`、`(tenant_id, package_id)`、`(tenant_id, student_id, expires_at)`（扣减选包与加锁路径，2.4 新增）。
 | 字段 | 类型 | 约束 | 说明 |
 |------|------|------|------|
 | id | UUID | PK | |
 | tenant_id | UUID | NOT NULL FK | |
 | student_id | UUID | NOT NULL FK→student.id | |
-| package_id | UUID | NOT NULL FK→course_package.id | |
+| course_id | UUID | NOT NULL FK→course.id | 本次缴费购买的课程（2.3 新增） |
+| package_id | UUID | NOT NULL FK→course_package.id | 课时包快照（缴费时按内联定义固化） |
 | quantity | INT | NOT NULL 默认 1 | |
 | amount | NUMERIC(10,2) | NOT NULL | 实收（线下登记 US-205） |
 | purchased_at | TIMESTAMPTZ | 默认 now() | |
 | expires_at | DATE | | purchased_at + valid_months |
 
 ### lesson_ledger（课时流水·只增）｜课时账本｜一期
-索引：`(tenant_id, student_id, created_at)`、`(tenant_id, type)`、`(tenant_id, lesson_id)`（流水与签到互查）。**无 updated_at、无余额列**（红线二）。
+索引：`(tenant_id, student_id, created_at)`、`(tenant_id, type)`、`(tenant_id, lesson_id)`（流水与签到互查）、`(tenant_id, purchase_id)`（按包求余额，2.4 新增）。**无 updated_at、无余额列**（红线二）。
 | 字段 | 类型 | 约束 | 说明 |
 |------|------|------|------|
 | id | UUID | PK | |
@@ -205,7 +206,7 @@
 | student_id | UUID | NOT NULL FK→student.id | |
 | purchase_id | UUID | FK→purchase.id；**consume 类型必填，其余类型可空** | 消费流水必须指明扣减的课时包 |
 | lesson_id | UUID | FK→lesson.id；**consume 类型必填，其余类型可空** | 消费对应课次；支撑 US-004 家长明细显示班级、流水与签到互查 |
-| type | VARCHAR(16) | NOT NULL | purchase/consume/refund/adjust/transfer |
+| type | VARCHAR(16) | NOT NULL | purchase/grant/consume/adjust/expire（refund/transfer 二期） |
 | delta | INT | NOT NULL | 正=增 负=减；只插不改 |
 | reason | VARCHAR(255) | | 调整/退费必填（US-209 留痕） |
 | operator_id | UUID | NOT NULL | 经办人 |

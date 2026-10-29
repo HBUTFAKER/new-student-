@@ -194,7 +194,8 @@ erDiagram
         UUID id PK
         UUID tenant_id FK
         UUID student_id FK
-        UUID package_id FK
+        UUID course_id FK "2.3：买的是哪门课"
+        UUID package_id FK "课时包快照"
         INT quantity
         NUMERIC amount
         TIMESTAMPTZ purchased_at
@@ -206,7 +207,7 @@ erDiagram
         UUID student_id FK
         UUID purchase_id FK "consume 必填 其余可空"
         UUID lesson_id FK "consume 必填 其余可空"
-        VARCHAR type "purchase/consume/refund/adjust/transfer"
+        VARCHAR type "purchase/grant/consume/adjust/expire"
         INT delta "正=增 负=减 只增不改"
         VARCHAR reason
         UUID operator_id

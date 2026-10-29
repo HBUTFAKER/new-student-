@@ -31,10 +31,21 @@ class Purchase(UUIDPrimaryKeyMixin, CreatedAtMixin, TenantMixin, Base):
     __table_args__ = (
         Index("ix_purchase_tenant_id_student_id", "tenant_id", "student_id"),
         Index("ix_purchase_tenant_id_package_id", "tenant_id", "package_id"),
+        # 扣减选包顺序 + 加锁路径。
+        Index(
+            "ix_purchase_tenant_id_student_id_expires_at",
+            "tenant_id",
+            "student_id",
+            "expires_at",
+        ),
     )
 
     student_id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("student.id"), nullable=False
+    )
+    # 一次缴费买的是哪门课；课时包模板本身不分课程（0.4 字典）。
+    course_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("course.id"), nullable=False
     )
     package_id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("course_package.id"), nullable=False

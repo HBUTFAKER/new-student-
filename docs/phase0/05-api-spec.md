@@ -1,7 +1,7 @@
 # 0.5 API 清单（一期全量）
 
 > 对应《学生信息管理系统_分步执行清单》步骤 0.5。技术栈：FastAPI。
-> 上游：0.1 一期范围（砍法 A）、0.2 权限矩阵、0.3 租户上下文、0.4 24 表与扣包顺序。
+> 上游：0.1 一期范围（砍法 A）、0.2 权限矩阵、0.3 租户上下文、0.4 数据模型（25 表）与扣包顺序。
 > 本文是一期前后端联调契约；二期接口只列名字（见末节）。
 
 ## 0. 统一约定
@@ -167,54 +167,79 @@
 - **即时生效**：退出后老师的任教班级范围与学员名单在下一次请求立即收窄（不做归属缓存）；家长绑定集合是另一条关系，独立实时复核。
 
 ### 3.4 课时包
-| 接口 | 权限 |
-|------|------|
-| `POST /course-packages` / `GET /course-packages` / `PATCH /course-packages/{id}` | ✅教务/管理员 |
+| 接口 | 权限 | 进度 |
+|------|------|------|
+| `GET /students/{student_id}/packages` | ✅教务/管理员；⚠️老师仅任教班级；⚠️家长仅绑定孩子 | **2.3 已落地** |
+| `POST /course-packages` / `GET /course-packages` / `PATCH /course-packages/{id}` | ✅教务/管理员 | 模板维护待后续步骤，本步未依赖 |
 
-- **请求**：`{ "name": "30 次卡", "total_lessons": 30, "gift_lessons": 2, "price": 3600.00, "valid_months": 6 }`
-- **响应 201**：`{ "id": "uuid", "name": "30 次卡", "valid_months": 6 }`
-- **错误**：422 `VALID_MONTHS_REQUIRED`（有效期必填，US-205）。
+- **2.3 决策**：缴费登记时把课时包定义**内联固化成快照**（写一行 `course_package`），历史缴费不受后续改模板影响；因此 `/purchases` 不要求 `package_id`。
+- **响应 200**：
+```json
+{ "items": [ { "purchase_id": "uuid", "course_id": "uuid", "course_name": "初三物理",
+  "package_name": "30次卡（赠2）", "granted": 32, "remaining": 12,
+  "purchased_at": "2026-11-01T10:00:00+08:00", "expires_at": "2027-05-01",
+  "status": "active" } ], "total": 1, "total_remaining": 12 }
+```
+- **status** 实时判定：`exhausted`（remaining ≤ 0）/ `expired`（`expires_at` 早于今天）/ `active`；不落余额列、不落状态列。
+- **错误**：403 `OUT_OF_SCOPE`（非绑定孩子/非任教班级）；404 `STUDENT_NOT_FOUND`。
 
-### 3.5 缴费登记（线下收款，US-205）
+### 3.5 缴费登记（线下收款，US-205）— 2.3 已落地
 - `POST /purchases` — ✅教务/管理员
-- **请求**：`{ "student_id": "uuid", "package_id": "uuid", "quantity": 1, "amount": 3600.00 }`
+- **请求**：`{ "student_id": "uuid", "course_id": "uuid", "lesson_count": 30, "gift_lesson_count": 2, "valid_months": 6, "amount": 3600.00 }`
 - **响应 201**：
 ```json
-{ "id": "uuid", "student_id": "uuid", "package_id": "uuid",
-  "expires_at": "2027-05-01",
-  "ledger_entry": { "type": "purchase", "delta": 32, "purchase_id": "uuid" } }
+{ "id": "uuid", "student_id": "uuid", "course_id": "uuid", "package_id": "uuid",
+  "package_name": "30次卡（赠2）", "quantity": 1, "amount": "3600.00",
+  "purchased_at": "2026-11-01T10:00:00+08:00", "expires_at": "2027-05-01",
+  "balance_after": 32,
+  "entries": [ { "type": "purchase", "delta": 30, "purchase_id": "uuid" },
+               { "type": "grant", "delta": 2, "purchase_id": "uuid", "reason": "赠送 2 课时" } ] }
 ```
-- **说明**：登记成功后**同一事务**写入 `lesson_ledger` 一条 `purchase` 流水（total+gift 课时），余额随之增加。
-- **错误**：404 `PACKAGE_NOT_FOUND`；422 `AMOUNT_INVALID`。
+- **说明**：同一事务写 `purchase` + `purchase` 流水（购买课时）+ `grant` 流水（**赠课单独一条**，不与购买混）。`expires_at = 购买日（业务时区 UTC+8）+ valid_months`，月末按日历顺延（1/31 + 1 月 = 2/28）。
+- **错误**：404 `STUDENT_NOT_FOUND` / `COURSE_NOT_FOUND`；422 `STUDENT_STATUS_INVALID`（学生不在读）/ `COURSE_INACTIVE` / `LESSON_COUNT_INVALID` / `VALID_MONTHS_REQUIRED` / `AMOUNT_INVALID`。
 
 ## 4. 课时账本模块
 
-### 4.1 流水查询
-- `GET /students/{student_id}/ledger`（?type=&page=） — ✅教务/管理员；⚠️老师仅任教班级消耗流水；⚠️家长仅绑定孩子（家长端入口见 6.4）
+### 4.1 流水查询（2.4 已落地）
+- `GET /students/{student_id}/ledger`（?type=&page=&page_size=） — ✅教务/管理员；⚠️老师仅任教班级消耗流水；⚠️家长仅绑定孩子（家长端入口见 6.4）
+- **type 取值**：`purchase` / `grant` / `consume` / `adjust` / `expire`（`expire` 的自动任务在 2.5）。
 - **响应 200**：
 ```json
 { "items": [ { "id": "uuid", "type": "consume", "delta": -1, "purchase_id": "uuid",
-  "lesson_id": "uuid", "class_name": "冲刺A班", "operator_id": "uuid",
+  "lesson_id": "uuid", "class_name": "冲刺A班", "reason": null, "operator_id": "uuid",
   "created_at": "2026-11-03T21:00:00+08:00" } ], "total": 25 }
 ```
-- **说明**：consume 流水带 `purchase_id`（扣哪个包）与 `lesson_id`（哪次课，可回查班级名）。
+- **说明**：consume 流水带 `purchase_id`（扣哪个包）与 `lesson_id`（哪次课，可回查 `class_name`）。流水**只增不改**，服务层不提供任何 update/delete。
+- **老师收窄**：只返回任教班级课次产生的 `consume`；学生不在任教班级则整体 403 `OUT_OF_SCOPE`。
 
-### 4.2 余额查询（实时计算，无余额列）
+### 4.2 余额查询（实时计算，无余额列）— 2.4 已落地
 - `GET /students/{student_id}/balance` — ✅教务/管理员；⚠️老师仅任教班级；⚠️家长仅绑定孩子
 - **响应 200**：
 ```json
 { "student_id": "uuid", "total": 17,
-  "packages": [ { "purchase_id": "uuid", "package_name": "30 次卡",
-    "remaining": 12, "expires_at": "2027-05-01" } ] }
+  "packages": [ { "purchase_id": "uuid", "package_name": "30次卡（赠2）",
+    "granted": 32, "remaining": 12, "expires_at": "2027-05-01", "status": "active" } ] }
 ```
-- **说明**：余额 = 对该学生全部流水 `SUM(delta)` 实时聚合（0.4 决策：不设快照表、无余额列）；各包余额按 purchase 分组求和。
-- **错误**：403 `OUT_OF_SCOPE`（非绑定孩子/非任教班级）。
+- **说明**：`total` = 该学生全部流水 `SUM(delta)` 实时聚合；各包 `remaining` = 按 `purchase_id` 分组求和。两者恒等（adjust 必须挂包，见 4.3）。
+- **错误**：403 `OUT_OF_SCOPE`；404 `STUDENT_NOT_FOUND`。
 
-### 4.3 课时调整（US-209，敏感操作）
+### 4.3 课时调整（US-209，敏感操作）— 2.4 已落地
 - `POST /ledger/adjustments` — ⚠️教务（必填 reason+全程留痕）；✅管理员
 - **请求**：`{ "student_id": "uuid", "purchase_id": "uuid", "delta": -1, "reason": "投诉退赔 1 课时" }`
-- **响应 201**：`{ "id": "uuid", "type": "adjust", "delta": -1, "reason": "…", "operator_id": "uuid" }`
-- **错误**：422 `REASON_REQUIRED`（原因必填）；409 `INSUFFICIENT_BALANCE`（调整后余额为负）。
+- **响应 201**：`{ "id": "uuid", "type": "adjust", "delta": -1, "purchase_id": "uuid", "reason": "…", "operator_id": "uuid", "created_at": "…" }`
+- **`purchase_id` 必填**（0.4 决策的收紧）：调整必须归属某个课时包，否则余额与包视图会对不上、4.5 对账无法精确到包。
+- **错误**：422 `REASON_REQUIRED`（原因为空/全空白）；422 `DELTA_INVALID`（调整数为 0）；409 `INSUFFICIENT_BALANCE`（调整后余额为负）；404 `PURCHASE_NOT_FOUND`（包不存在或不属于该学生）；404 `STUDENT_NOT_FOUND`。
+
+### 4.4 扣减服务（内部，无 HTTP 入口）— 2.4 已落地
+`deduct_lessons(student_id, lesson_id, count, operator_id)` 供 2.5 签到调用：
+1. `SELECT … FROM purchase WHERE student_id = ? AND (expires_at IS NULL OR expires_at >= 今天) ORDER BY expires_at ASC NULLS LAST, purchased_at ASC, id ASC FOR UPDATE`——先锁包行，再读余额；
+2. 按 0.4 第四节顺序扣减：**先过期先扣 → 同日先购先扣**，单包不足顺延下一有效包并**拆多条 consume 流水**（各挂各自 `purchase_id`）；
+3. 总余额不足 → 409 `BALANCE_EXHAUSTED`，抛错前不写任何流水（无部分扣减）；
+4. 过期包（`expires_at < 今天`）不参与扣减，流水保留可查。
+
+### 4.5 对账脚本 — 2.4 已落地
+- `python -m scripts.reconcile_ledger [--json]`：用运行时角色（`DATABASE_URL`）逐租户 `set_config` 后核对——包视图 `remaining` ↔ 该 `purchase_id` 的 `SUM(delta)`、学生 `total` ↔ 包视图之和、`consume` 必带 `purchase_id`+`lesson_id`、非 consume 必带 `purchase_id`。
+- 退出码 0 = 零差异，1 = 有差异；本步已落地 `purchase` / `grant` / `consume` / `adjust`，`expire` 的自动任务随 2.5 接入。
 
 ## 5. 排课模块
 
@@ -357,4 +382,4 @@
 - 0.2 矩阵一期各 ✅/⚠️ 操作 ↔ 本文接口：档案 6 组（学生/家长/绑定/邀请码/老师/教室）、课程班级 5 组（课程/班级/名单/课时包/缴费）、账本 3 条（流水/余额/调整）、排课 3 条（规律/预检/调课）、签到 4 条（点名/结果/规则读/规则写）、交易 1 条（转班）、家长端 5 条（绑定/切换/课表/余额/明细）、机构配置 1 条（员工账号）、认证 3 条——**双向无遗漏**。
 - 报表/消息一期无接口（全二期），矩阵对应行均已标二期。
 - 全接口租户过滤方式统一（第 0 节），数据归属条件在各接口标注，与 0.2 矩阵 ⚠️ 条款一一对应。
-- **实现进度**：第 1 节认证、第 2 节档案、第 3.1~3.3 课程班级（2.1/2.2）已落地；课时包/缴费/账本/排课/签到/交易/机构配置待后续步骤。
+- **实现进度**：第 1 节认证、第 2 节档案、第 3.1~3.3 课程班级（2.1/2.2）、第 3.4~3.5 课时包与缴费、第 4 节账本（2.3/2.4，含扣减服务与对账脚本）已落地；排课/签到/交易/机构配置待后续步骤。

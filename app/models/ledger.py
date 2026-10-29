@@ -31,6 +31,8 @@ class LessonLedger(UUIDPrimaryKeyMixin, CreatedAtMixin, TenantMixin, Base):
         ),
         Index("ix_lesson_ledger_tenant_id_type", "tenant_id", "type"),
         Index("ix_lesson_ledger_tenant_id_lesson_id", "tenant_id", "lesson_id"),
+        # 包余额 = 按 purchase_id 分组 SUM(delta)，见 2.4。
+        Index("ix_lesson_ledger_tenant_id_purchase_id", "tenant_id", "purchase_id"),
     )
 
     student_id: Mapped[UUID] = mapped_column(
