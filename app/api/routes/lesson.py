@@ -1,7 +1,7 @@
-"""Lesson endpoints (3.2): batch generation and timetable query.
+"""Lesson endpoints (3.2 / 3.4): generation, timetable query, single add, move/cancel, makeup.
 
-写操作（生成）收口 OfficeUser；查询本步同 3.1 口径（老师/家长按 0.2 矩阵的
-「课表查询」ⓘ 收窄属于后续课表接口，这里不做半成品）。
+写操作（生成/加课/调课/取消/补课排期）收口 OfficeUser；查询本步同 3.1 口径
+（老师/家长按 0.2 矩阵的「课表查询」ⓘ 收窄属于后续课表接口，这里不做半成品）。
 """
 
 from datetime import date
@@ -10,12 +10,31 @@ from uuid import UUID
 
 from fastapi import APIRouter, Query
 from sqlalchemy import Row
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import TenantDbSession
 from app.api.permissions import OfficeUser
-from app.schemas.lesson import LessonGenerate, LessonGenerationOut, LessonList, LessonOut
+from app.core.errors import AppError
+from app.models.schedule import Lesson
+from app.schemas.lesson import (
+    LessonCreate,
+    LessonGenerate,
+    LessonGenerationOut,
+    LessonList,
+    LessonOut,
+    LessonUpdate,
+    MakeupLessonCreate,
+    MakeupLessonOut,
+)
+from app.services.attendance import schedule_makeup
 from app.services.ledger import BUSINESS_TZ
-from app.services.lesson import generate_lessons, list_lessons
+from app.services.lesson import (
+    create_lesson,
+    generate_lessons,
+    lesson_select,
+    list_lessons,
+    update_lesson,
+)
 
 router = APIRouter(tags=["lesson"])
 
@@ -78,3 +97,64 @@ async def list_lessons_endpoint(
         page_size=page_size,
     )
     return LessonList(items=[_lesson_view(row) for row in rows], total=total)
+
+
+async def _lesson_out(db: AsyncSession, lesson_id: UUID) -> LessonOut:
+    row = (await db.execute(lesson_select().where(Lesson.id == lesson_id))).first()
+    if row is None:
+        raise AppError(404, "LESSON_NOT_FOUND", "课次不存在")
+    return _lesson_view(row)
+
+
+@router.post(
+    "/lessons", status_code=201, response_model=LessonOut, summary="单次加课（教务/管理员）"
+)
+async def create_lesson_endpoint(
+    payload: LessonCreate, db: TenantDbSession, principal: OfficeUser
+) -> LessonOut:
+    lesson = await create_lesson(
+        db,
+        tenant_id=principal.tenant_id,
+        class_id=payload.class_id,
+        classroom_id=payload.classroom_id,
+        teacher_id=payload.teacher_id,
+        start_at=payload.start_at,
+        end_at=payload.end_at,
+    )
+    return await _lesson_out(db, lesson.id)
+
+
+@router.patch("/lessons/{lesson_id}", response_model=LessonOut, summary="调课/取消（教务/管理员）")
+async def patch_lesson(
+    lesson_id: UUID,
+    payload: LessonUpdate,
+    db: TenantDbSession,
+    principal: OfficeUser,
+) -> LessonOut:
+    await update_lesson(db, lesson_id=lesson_id, data=payload.model_dump(exclude_unset=True))
+    return await _lesson_out(db, lesson_id)
+
+
+@router.post(
+    "/makeup-lessons",
+    status_code=201,
+    response_model=MakeupLessonOut,
+    summary="补课排期（教务/管理员）",
+)
+async def schedule_makeup_endpoint(
+    payload: MakeupLessonCreate, db: TenantDbSession, principal: OfficeUser
+) -> MakeupLessonOut:
+    seat = await schedule_makeup(
+        db,
+        tenant_id=principal.tenant_id,
+        student_id=payload.student_id,
+        absent_lesson_id=payload.absent_lesson_id,
+        target_lesson_id=payload.target_lesson_id,
+        operator_id=principal.subject_id,
+    )
+    return MakeupLessonOut(
+        id=seat.id,
+        student_id=seat.student_id,
+        target_lesson_id=seat.lesson_id,
+        status=seat.status,
+    )

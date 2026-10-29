@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError
 from app.models.archive import Classroom, Teacher
+from app.models.attendance import Attendance
 from app.models.course import Class
 from app.models.schedule import Lesson, ScheduleRule
 from app.services.conflict import Conflict, find_conflicts
@@ -160,6 +161,33 @@ async def generate_lessons(
     )
 
 
+def _require_aware_time(start_at: datetime, end_at: datetime) -> None:
+    if (
+        start_at.tzinfo is None
+        or start_at.utcoffset() is None
+        or end_at.tzinfo is None
+        or end_at.utcoffset() is None
+    ):
+        raise AppError(422, "TIME_NAIVE", "时间必须带时区")
+
+
+async def _ensure_lesson_refs(
+    db: AsyncSession, class_id: UUID, classroom_id: UUID, teacher_id: UUID
+) -> None:
+    klass = await db.get(Class, class_id)
+    if klass is None:
+        raise AppError(404, "CLASS_NOT_FOUND", "班级不存在")
+    if klass.status == "ended":
+        raise AppError(409, "CLASS_ENDED", "班级已结课，不能再加课")
+    if await db.get(Classroom, classroom_id) is None:
+        raise AppError(404, "CLASSROOM_NOT_FOUND", "教室不存在")
+    teacher = await db.get(Teacher, teacher_id)
+    if teacher is None:
+        raise AppError(404, "TEACHER_NOT_FOUND", "老师不存在")
+    if teacher.status != "active":
+        raise AppError(422, "TEACHER_INACTIVE", "老师已停用，不能排课")
+
+
 async def create_lesson(
     db: AsyncSession,
     *,
@@ -176,6 +204,11 @@ async def create_lesson(
     The EXCLUDE constraints are the backstop: if the pre-check races and the
     INSERT still violates exclusion, ``23P01`` is translated to 409.
     """
+
+    _require_aware_time(start_at, end_at)
+    if start_at >= end_at:
+        raise AppError(422, "TIME_RANGE_INVALID", "结束时间必须晚于开始时间")
+    await _ensure_lesson_refs(db, class_id, classroom_id, teacher_id)
 
     clashes = await find_conflicts(
         db,
@@ -208,6 +241,92 @@ async def create_lesson(
     except IntegrityError as exc:
         if getattr(exc.orig, "sqlstate", None) == "23P01":
             raise AppError(409, "SCHEDULE_CONFLICT", "该时段与已有课次冲突") from exc
+        raise
+    return lesson
+
+
+async def _ensure_adjustable(db: AsyncSession, lesson: Lesson) -> None:
+    """已签到或已开始的课次不能再调整（调课与取消统一守门）。"""
+
+    attended = await db.scalar(select(Attendance.id).where(Attendance.lesson_id == lesson.id))
+    if attended is not None or lesson.start_at < datetime.now(BUSINESS_TZ):
+        raise AppError(422, "LESSON_ALREADY_DONE", "已签到或已开始的课次不能再调整")
+
+
+async def update_lesson(db: AsyncSession, *, lesson_id: UUID, data: dict) -> Lesson:
+    """Move or cancel a lesson (3.4). Neither path writes any ledger row.
+
+    Cancellation only flips ``status`` to ``cancelled`` (soft), which the EXCLUDE
+    predicate ignores, so the slot is released. A move runs the same three-
+    dimension pre-check as insertion — excluding the lesson itself — plus the
+    EXCLUDE backstop, and marks the lesson ``moved``.
+    """
+
+    lesson = await db.get(Lesson, lesson_id)
+    if lesson is None:
+        raise AppError(404, "LESSON_NOT_FOUND", "课次不存在")
+
+    await _ensure_adjustable(db, lesson)
+
+    if data.get("status") == "cancelled":
+        lesson.status = "cancelled"
+        await db.flush()
+        return lesson
+
+    for key in ("start_at", "end_at", "classroom_id", "teacher_id"):
+        if key in data and data[key] is None:
+            raise AppError(422, "VALIDATION_ERROR", f"{key} 不能为空")
+    if not any(key in data for key in ("start_at", "end_at", "classroom_id", "teacher_id")):
+        raise AppError(
+            422, "LESSON_UPDATE_EMPTY", "调课需提供至少一个变更字段，或 status=cancelled"
+        )
+
+    new_classroom = data.get("classroom_id", lesson.classroom_id)
+    new_teacher = data.get("teacher_id", lesson.teacher_id)
+    new_start = data.get("start_at", lesson.start_at)
+    new_end = data.get("end_at", lesson.end_at)
+    _require_aware_time(new_start, new_end)
+    if new_start >= new_end:
+        raise AppError(422, "TIME_RANGE_INVALID", "结束时间必须晚于开始时间")
+
+    if await db.get(Classroom, new_classroom) is None:
+        raise AppError(404, "CLASSROOM_NOT_FOUND", "教室不存在")
+    teacher = await db.get(Teacher, new_teacher)
+    if teacher is None:
+        raise AppError(404, "TEACHER_NOT_FOUND", "老师不存在")
+    if teacher.status != "active":
+        raise AppError(422, "TEACHER_INACTIVE", "老师已停用，不能排课")
+
+    clashes = [
+        clash
+        for clash in await find_conflicts(
+            db,
+            classroom_id=new_classroom,
+            teacher_id=new_teacher,
+            class_id=lesson.class_id,
+            start_at=new_start,
+            end_at=new_end,
+        )
+        if clash.lesson_id != lesson.id
+    ]
+    if clashes:
+        raise AppError(
+            409,
+            "LESSON_OVERLAP",
+            "该时段与已有课次冲突",
+            detail={"conflicts": [clash.to_dict() for clash in clashes]},
+        )
+
+    lesson.classroom_id = new_classroom
+    lesson.teacher_id = new_teacher
+    lesson.start_at = new_start
+    lesson.end_at = new_end
+    lesson.status = "moved"
+    try:
+        await db.flush()
+    except IntegrityError as exc:
+        if getattr(exc.orig, "sqlstate", None) == "23P01":
+            raise AppError(409, "LESSON_OVERLAP", "该时段与已有课次冲突") from exc
         raise
     return lesson
 
