@@ -14,3 +14,4 @@
   - `04-data-dictionary.md` — 0.4 字段字典
   - `05-api-spec.md` — 0.5 API 清单（一期全量含权限与租户过滤）
   - `06-wechat-architecture.md` — 0.6 微信端架构（统一小程序 + unionid 打通）
+  - `07-notification-fallback.md` — 0.7 消息降级链（时序图 + 状态机）

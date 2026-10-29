@@ -8,7 +8,7 @@
 
 - **租户过滤（全接口通用）**：`tenant_id` 由 JWT 服务端解析，经 `set_config('app.tenant_id', :t, true)` 注入事务，RLS 兜底；**任何接口不接收 tenant 参数**，请求中出现 `tenant_id` 字段一律忽略。
 - **数据归属（对象级鉴权）**：角色通过后再校验归属——老师仅任教班级、家长仅绑定孩子、教务/管理员本租户全量。越界对象一律 404/403。
-- **认证**：`Authorization: Bearer <JWT>`。JWT 载荷：`sub`（用户ID）、`tenant_id`、`role`（admin/registrar/teacher/parent）、`scope_type`（数据归属类型）；绑定孩子集合、任教班级由服务端每次实时查 DB（防止 token 内数据过期/被篡改扩大）。
+- **认证**：`Authorization: Bearer <JWT>`。JWT 载荷：`sub`（用户ID）、`tenant_id`、`role`（admin/registrar/teacher/parent）、`scope_type`（数据归属类型）；绑定孩子集合、任教班级由服务端每次实时查 DB（防止 token 内数据过期/被篡改扩大）。未绑定孩子的家长 token `tenant_id=NULL`，仅可访问 `/me/bindings`、`/me/students`、`/me/active-student` 三个绑定相关接口，访问业务数据一律 403（对齐 0.6）。
 - **错误格式**：
 ```json
 { "error": { "code": "STUDENT_NOT_FOUND", "message": "学生不存在", "trace_id": "8f3a…" } }
@@ -281,7 +281,7 @@
 - `GET /me/students` — ⚠️家长：仅返回当前微信号绑定集合
 - **响应 200**：`{ "items": [ { "student_id": "uuid", "student_name": "王小明", "active": true } ] }`
 - `POST /me/active-student` — ⚠️家长：目标必须在绑定集合内（V-08：集合外 403）
-- **请求**：`{ "student_id": "uuid" }`；**响应 200**：`{ "active_student_id": "uuid", "access_token": "eyJ…", "token_type": "bearer", "expires_in": 7200 }`（切换后必须重签 JWT，使 tenant_id 跟随当前孩子所属机构，见 0.6）
+- **请求**：`{ "student_id": "uuid" }`；**响应 200**：`{ "active_student_id": "uuid", "access_token": "eyJ…（重签，含新 tenant_id）" }`（切换后必须重签 JWT，使 tenant_id 跟随当前孩子所属机构，见 0.6）
 - **错误**：403 `OUT_OF_BINDING_SET`。
 
 ### 9.3 周课表（US-002）
