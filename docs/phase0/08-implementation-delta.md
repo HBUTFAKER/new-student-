@@ -8,11 +8,55 @@
 > - 发令部：读 §0 最新一块 + §4 已锁定约定，再出指令。别只看 01~07 原文，那是基线，不是现状。
 > - 开发：动表结构、动既有测试、动已上线接口前，先读 §1 与 §2。
 
-当前状态：**阶段 3 收官（3.5 完成）**，Alembic head = `0010_org_config_audit`，全库 26 张表（业务层 19 张）。**阶段 4 收官**：4.1 前端骨架 + 4.2 档案与班级管理页 + 4.3 排课日历与拖拽调课 + 4.4 上（三个只读报表接口）+ 4.4 下（报表前端页）全部完成。4.4 上是阶段 4 唯一动后端的部分：零迁移、零新表。
+当前状态：**阶段 3 收官（3.5 完成）**，Alembic head = `0010_org_config_audit`，全库 26 张表（业务层 19 张）。**阶段 4 收官**：4.1 前端骨架 + 4.2 档案与班级管理页 + 4.3 排课日历与拖拽调课 + 4.4 上（三个只读报表接口）+ 4.4 下（报表前端页）全部完成。4.4 上是阶段 4 唯一动后端的部分：零迁移、零新表。**阶段 5 进行中**：5.1 家长端小程序骨架 + 登录 + 请求封装已完成（新目录 `miniprogram/`，后端一行未动）。
 
 ---
 
 ## §0 交接区（最新在最上面）
+
+### [5.1] 2026-10-31 00:52 · commit `ee406c7`（已推送，CI 41089429270 四 job 全绿）
+
+**我改了什么**
+
+- 新增 `miniprogram/`（与 `web/` 平级）：原生小程序 + 原生 JS，**零 npm 依赖、零构建链**。`app/`、`alembic/`、`tests/`、`.github/` 一行未动。
+- 工程骨架：`app.json`（3 页）、`project.config.json`（appid 占位 `touristappid`、`urlCheck:false`）、`sitemap.json`、`app.js` / `app.wxss`。
+- `utils/request-core.js` 是请求管线的**纯逻辑**：Bearer 注入、401 单航班续期、错误统一成 `{code,message,status,detail}`。**完全不碰 `wx.*`**，所以能在 Node 里直测——这是 030「拆成纯函数配 Node 单测」的落点。
+- `utils/request.js` 只做 `wx.request → Promise` 适配，把平台能力（storage / toast / reLaunch）注入 core。
+- `utils/storage.js`：`auth` 一个 key，存 `access_token / refresh_token / role / tenant_id / active_student_id / bound_students`。**openid/unionid 不落地**（06 §2.1 红线）。
+- `utils/auth.js`：`wx.login()` → `POST /auth/wechat-login { wx_code }` → 存 token → `GET /me/students` 验身份 → 返回 `{ needBind, students }`。
+- `pages/login`：首屏；已有 token 直接 `reLaunch` 首页；失败内联显示原因 + 重试（不是弹个 toast 就没）。
+- `pages/home`：`/me/students` 孩子列表（姓名 / 机构 / 关系 / 「当前」标记）+ 下拉刷新；加载 / 空 / 错三态，错误页写原因 + 重新加载，不白屏。
+- `pages/bind-placeholder`：一句「请向机构索取邀请码」+「我已绑定，重新检查」+「换个微信号登录」（真绑定是 5.2）。
+- 测试：`tests/request-core.test.js` 15 项（`node:test`，零框架）；`tests/live-smoke.js` 26 项真后端冒烟（手动跑）。
+
+**必须跟着改的地方**
+
+1. **判定去首页还是引导页，用的是 `/me/students` 的实时条数，不是登录响应的 `bound_students` 快照。** 后者是签发那一刻算的，紧接着 `/me/students` 会重新查库；中途被解绑就会出现一个说有一个说没有。现在以 `items.length` 为准，并把 `bound_students` 回填成实时值。**别再把登录响应的 `bound_students` 当作「这家长有几个孩子」的权威值。**
+2. **`tenant_id === null` 不等于「没绑定」，这个分支现在会误导人。** `login_wechat` 只在「恰好 1 个有效绑定」时才给 `tenant_id`；绑了 2 个孩子时 `bound_students=2` 但 `tenant_id=null`。按 030 指令（`bound_students===0` 或 `tenant_id===null` → 绑定引导页），这类家长会被送到「请向机构索取邀请码」——但他明明绑过。**本步照指令实现了，缺口在指令侧：5.2/5.3 得补一个「选择孩子」页，或者引导页把两种文案分开。**
+3. **`touristappid` 和 `wx.login` 是冲突的。** 游客模式下 `wx.login` 拿不到 code，而 stub 后端接受任意 code。折中：`utils/config.js` 在 `envVersion === 'develop'` 时允许用固定假 code（`devtools_openid|devtools_unionid`），trial / release 自动失效。**换真 appid 后兜底自然不生效，不用删也不会误用**；但若写「登录必须走真 code」的验收，要注明 develop 例外。
+4. **401 清场只回调一次。** 并发 3 个 401 且 refresh 也失效时，`clearTokens` + `reLaunch` 只执行一次（内部 flag），不会连着踢三次。登录成功后调 `resetSession()` 复位。030 没写这条，是实现细节，但页面层要遵守：**别自己再 catch 401 去跳转**，交给封装。
+5. **登录请求不参与续期。** `POST /auth/wechat-login` 带 `skipAuth + skipRefresh`，它自己 401 直接当业务错误抛（否则会 refresh→重放→再 401 死循环）。
+6. **没有 `/auth/logout` 接口。** 退出登录只清本地 storage —— 后端 JWT 无状态，本来也没黑名单。要「服务端作废」得加表，属二期。
+7. **没有 tabBar。** 3 个页面用 `reLaunch` 切换。5.3 上四主页面后再评估；**tabBar 页面不能用 `navigateTo` 跳**，加了会牵动 `app.json` 和所有跳转点。
+8. **小程序不发 `tenant_id`**，所有隔离靠 JWT（06 决策 3 红线）。
+9. **首页只打 `/me/students`**，课表 / 余额 / 扣课明细一个接口都没调（5.3 的活）。
+10. **CI 没加小程序 job**（030 明令）。单测本地跑：`node --test miniprogram/tests/request-core.test.js`。
+
+**给发令部的指令**
+
+- 5.2 做绑定页时直接复用 `utils/request.js` 的 `post`。**`POST /me/bindings` 的响应里没有 `role` / `bound_students`，但会重签带 `tenant_id` 的 JWT，所以必须整体覆盖 storage 的 `auth`（保留 `role`），不能只 patch `access_token`。**
+- 5.2 绑定成功后要调 `resetSession()`，否则上一轮清场留下的 flag 会挡住后续 401 续期。
+- 多孩子（`bound_students > 1` 且 `tenant_id === null`）现在**没有正常出口**，建议 5.2 或 5.3 补「选择孩子」页，用 `POST /me/active-student` 换新 JWT。
+- **「微信开发者工具打开能编译通过」这条本机无法自动验证（没装工具）**，已列为人工验证项；我做的是等价静态校验，见下。发令部若要把它当硬门槛，需要人工过一遍。
+- 5.3 再决定 tabBar；要加就得同步改所有跳转方式。
+
+**验证（本地实跑）**
+
+- Node 单测 **15 项全过**：Bearer 注入、并发 3 个 401 只发 1 次 refresh（断言 `businessCalls=6`、`refreshCalls=1`）、refresh 失败清场只一次、续期后仍 401 不死循环、无 refresh token 不发请求、422 带 detail + toast、`silent` 不 toast、登录接口自身 401 不触发续期、断网 `NETWORK_ERROR`、无 token 不带 Authorization、`resetSession` 复位、singleFlight 结束后可重入。
+- 真后端冒烟 **26 项全过**（嵌入式 PG + `uvicorn --port 8010`，stub 微信模式；造了一个绑 1 个孩子的家长：王小明 / 演示机构）。断言覆盖：token 落地、`role=parent`、`tenant_id`/`active_student_id` 有值、`needBind=false`、孩子姓名非空、**storage 序列化里不含 openid/unionid**、坏 token 触发真 401 → 续期 → 重放成功且没被踢、并发 3 个 401 全部恢复、refresh 失效 → `SESSION_EXPIRED` + storage 清空 + `reLaunch` 回登录页、无绑定账号 `needBind=true`、断网 `NETWORK_ERROR` 文案含「网络」、无 token 请求被挡。
+- 静态校验：11 个 `.js` 过 `node --check`；6 个 `.json` 可解析；`app.json` 里 3 个页面的 `.js/.json/.wxml/.wxss` 四件套齐全；3 个 WXML 标签栈闭合。
+- **未验证**：微信开发者工具编译、真机预览、三页在真机上的排版。
+- CI `41089429270`：`lint` / `test` / `web` / `docker-smoke` 四 job 全绿。
 
 ### [4.4 下] 2026-10-31 00:20 · commit `c04f073`（已推送，CI 41087069037 四 job 全绿）
 
@@ -524,3 +568,4 @@ DELETE /tenant-holidays/{id}                                             → 204
 | 4.3 | `98631ae` | 排课日历（自绘周网格 + 月概览）+ 原生拖拽调课（15 分钟吸附、本地老师/教室预检、乐观更新 + 409 明细回滚）+ 课次详情/调课/取消 + 新增单次课；搭车补课程维护页；`ApiError.detail` 透传 `error.conflicts`。零后端改动 |
 | 4.4 上 | `2834336` | 三个只读报表接口：`/reports/attendance-summary`（按班级 + `detail` 按学生）、`/reports/consumption`（含 `by_class`）、`/reports/teacher-hours`；`OfficeUser` 收口；窗口 `[from,to)` 按 UTC+8，366 天上限；`null` 出勤率、makeup 计入并注明；零迁移、零写操作、零新表 |
 | 4.4 下 | `c04f073` | 报表前端三页（出勤率 / 课耗 / 老师课时）：子路由 + 菜单 3 子项、共用日期工具栏、`null` 出勤率显示「—」、detail 展开学生、by_class 展开分布、分钟→`8h 30m`、CSV 导出（BOM + 日期范围文件名）、空数据 el-empty。零后端改动、零新增依赖（dayjs 未引，用 `Intl` 锁 Asia/Shanghai） |
+| 5.1 | `ee406c7` | `miniprogram/` 家长端骨架：原生小程序 + 原生 JS，零依赖零构建链；`request-core.js` 纯逻辑（Bearer 注入 / 401 单航班续期 / 错误归一）配 15 项 node:test；登录页 + 首页孩子列表 + 绑定引导占位；openid/unionid 不落地；develop 环境假 wx_code 兜底。零后端改动、零迁移 |
