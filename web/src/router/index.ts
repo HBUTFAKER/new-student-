@@ -37,14 +37,36 @@ const routes: RouteRecordRaw[] = [
       },
       {
         path: 'archive',
-        name: 'archive',
-        component: () => import('@/views/PlaceholderView.vue'),
-        meta: { title: '档案管理', roles: OFFICE },
+        redirect: { name: 'archive-students' },
+      },
+      {
+        path: 'archive/students',
+        name: 'archive-students',
+        component: () => import('@/views/archive/StudentsView.vue'),
+        meta: { title: '学生档案', roles: OFFICE },
+      },
+      {
+        path: 'archive/parents',
+        name: 'archive-parents',
+        component: () => import('@/views/archive/ParentsView.vue'),
+        meta: { title: '家长档案', roles: OFFICE },
+      },
+      {
+        path: 'archive/teachers',
+        name: 'archive-teachers',
+        component: () => import('@/views/archive/TeachersView.vue'),
+        meta: { title: '老师档案', roles: OFFICE },
+      },
+      {
+        path: 'archive/classrooms',
+        name: 'archive-classrooms',
+        component: () => import('@/views/archive/ClassroomsView.vue'),
+        meta: { title: '教室档案', roles: OFFICE },
       },
       {
         path: 'classes',
         name: 'classes',
-        component: () => import('@/views/PlaceholderView.vue'),
+        component: () => import('@/views/ClassesView.vue'),
         meta: { title: '班级管理', roles: OFFICE },
       },
       {

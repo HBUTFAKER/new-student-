@@ -12,6 +12,9 @@ const router = useRouter()
 const auth = useAuthStore()
 
 const menuItems = computed(() => menuForRole(auth.role))
+const openedMenus = computed(() =>
+  menuItems.value.filter((item) => item.children?.length).map((item) => item.path),
+)
 const roleLabel = computed(() => (auth.role ? ROLE_LABELS[auth.role] : ''))
 const pageTitle = computed(() => (typeof route.meta.title === 'string' ? route.meta.title : ''))
 
@@ -37,11 +40,28 @@ async function handleSignOut(): Promise<void> {
         <span class="layout__brand-mark">托</span>
         <span class="layout__brand-text">机构管理系统</span>
       </div>
-      <el-menu :default-active="route.path" router class="layout__menu">
-        <el-menu-item v-for="item in menuItems" :key="item.path" :index="item.path">
-          <el-icon><component :is="item.icon" /></el-icon>
-          <span>{{ item.title }}</span>
-        </el-menu-item>
+      <el-menu
+        :default-active="route.path"
+        :default-openeds="openedMenus"
+        router
+        class="layout__menu"
+      >
+        <template v-for="item in menuItems" :key="item.path">
+          <el-sub-menu v-if="item.children && item.children.length > 0" :index="item.path">
+            <template #title>
+              <el-icon><component :is="item.icon" /></el-icon>
+              <span>{{ item.title }}</span>
+            </template>
+            <el-menu-item v-for="child in item.children" :key="child.path" :index="child.path">
+              <el-icon><component :is="child.icon" /></el-icon>
+              <span>{{ child.title }}</span>
+            </el-menu-item>
+          </el-sub-menu>
+          <el-menu-item v-else :index="item.path">
+            <el-icon><component :is="item.icon" /></el-icon>
+            <span>{{ item.title }}</span>
+          </el-menu-item>
+        </template>
       </el-menu>
     </el-aside>
 

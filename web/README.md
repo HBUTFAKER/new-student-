@@ -20,7 +20,8 @@ pnpm typecheck  # 只跑类型检查
 
 | 变量 | 说明 |
 |------|------|
-| `VITE_API_BASE_URL` | 后端 API 根地址。`web/.env.development` 默认 `http://localhost:8000`；生产留空表示同源（由反向代理转发 `/auth`、`/students` 等） |
+| `VITE_API_BASE_URL` | 后端 API 根地址。`web/.env.development` 是 `/api`（走 Vite 同源代理，避免后端无 CORS 时的跨域拦截）；生产留空表示同源，由反向代理把 `/auth`、`/students` 等转发到后端 |
+| `VITE_PROXY_TARGET` | 仅开发用，代理目标，默认 `http://localhost:8000` |
 
 ## 目录
 

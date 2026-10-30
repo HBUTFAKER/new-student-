@@ -27,12 +27,20 @@ interface ErrorEnvelope {
 export class ApiError extends Error {
   readonly code: string
   readonly status: number
+  /** FastAPI 422 校验错误按字段归位：{ name: '...', capacity: '...' }，供表单一格一格回显 */
+  readonly fieldErrors?: Record<string, string>
 
-  constructor(message: string, code: string, status: number) {
+  constructor(
+    message: string,
+    code: string,
+    status: number,
+    fieldErrors?: Record<string, string>,
+  ) {
     super(message)
     this.name = 'ApiError'
     this.code = code
     this.status = status
+    this.fieldErrors = fieldErrors
   }
 }
 
@@ -97,15 +105,37 @@ function defaultMessage(status: number): string {
   return '请求失败，请稍后重试'
 }
 
+interface ValidationIssue {
+  loc?: (string | number)[]
+  msg?: string
+}
+
+/** FastAPI 422 的原始体是 { detail: [{ loc: ["body","name"], msg }] }，不是我们的错误信封 */
+function extractFieldErrors(body: unknown): Record<string, string> | undefined {
+  if (!body || typeof body !== 'object') return undefined
+  const detail = (body as { detail?: unknown }).detail
+  if (!Array.isArray(detail)) return undefined
+
+  const fieldErrors: Record<string, string> = {}
+  for (const item of detail as ValidationIssue[]) {
+    const path = (item.loc ?? []).slice(1).join('.')
+    if (path && typeof item.msg === 'string' && !fieldErrors[path]) {
+      fieldErrors[path] = item.msg
+    }
+  }
+  return Object.keys(fieldErrors).length > 0 ? fieldErrors : undefined
+}
+
 export function toApiError(error: unknown): ApiError {
   if (error instanceof ApiError) return error
 
   if (axios.isAxiosError<ErrorEnvelope>(error)) {
     const status = error.response?.status ?? 0
     const body = error.response?.data
+    const fieldErrors = extractFieldErrors(body)
     const code = body?.error?.code ?? (status === 0 ? 'NETWORK_ERROR' : `HTTP_${status}`)
     const message = body?.error?.message ?? defaultMessage(status)
-    return new ApiError(message, code, status)
+    return new ApiError(message, code, status, fieldErrors)
   }
 
   return new ApiError('请求失败，请稍后重试', 'UNKNOWN_ERROR', 0)
