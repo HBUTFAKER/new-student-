@@ -8,11 +8,51 @@
 > - 发令部：读 §0 最新一块 + §4 已锁定约定，再出指令。别只看 01~07 原文，那是基线，不是现状。
 > - 开发：动表结构、动既有测试、动已上线接口前，先读 §1 与 §2。
 
-当前状态：**阶段 3 收官（3.5 完成）**，Alembic head = `0010_org_config_audit`，全库 26 张表（业务层 19 张）。阶段 4 已开工：**4.1 管理端前端骨架完成**（`web/`，零后端改动、零迁移）。
+当前状态：**阶段 3 收官（3.5 完成）**，Alembic head = `0010_org_config_audit`，全库 26 张表（业务层 19 张）。阶段 4 进行中：**4.1 前端骨架 + 4.2 档案与班级管理页已完成**（`web/`，两轮均零后端改动、零迁移）。
 
 ---
 
 ## §0 交接区（最新在最上面）
+
+### [4.2] 2026-10-30 19:20 · commit `350b713`（已推送，CI 41044894471 全绿）
+
+**我改了什么**
+
+- 5 个管理页上线：`/archive/students`、`/archive/parents`、`/archive/teachers`、`/archive/classrooms`、`/classes`。菜单里「档案管理」改成 4 个子菜单（`el-sub-menu`），「班级管理」接真页面；`/archive` 重定向到学生档案。权限仍只写在路由 `meta.roles`（全部 OFFICE）。
+- 统一列表三件套：筛选栏 + 表格 + 分页（抽了 `composables/usePagedList`），新建/编辑对话框，状态位二次确认。
+- 学生：新建/编辑/归档（`status=archived`，文案「归档后不再显示，历史数据保留」）/恢复；`contact` 前端按 11 位手机号校验（可空）。
+- 家长：新建/编辑；`409 PARENT_DUPLICATED` 回填到手机号输入框下方（不是一闪而过的 toast）；行内展示已绑定学生标签，可解绑，可「绑定学生」（`POST /bindings`）。
+- 老师：新建/编辑/停用（`inactive`，文案「停用后排课与签到将受限」）/启用。
+- 教室：新建/编辑 + 容量校验（正整数、≤10000），`422 CAPACITY_INVALID` 回填到容量字段。
+- 班级：课程/老师/教室下拉 + 学期起止 + 容量（留空=继承教室容量，上限=教室容量，前后端双校验）；学员名单抽屉（`GET/POST/DELETE /classes/{id}/students`），满员 `CLASS_FULL`、重复 `ALREADY_ENROLLED`、非在读 `STUDENT_STATUS_INVALID`、已结课 `CLASS_ENDED` 都按后端 message 就近提示。
+- 导出 CSV：各页按钮导出**当前筛选结果的全量**（翻页拉完，`page_size=100`），UTF-8 带 BOM，原生 Blob，未引库。
+- 批量导入（学生、家长）：模板下载（表头 + 一行示例）→ papaparse 解析 → 逐条调既有 POST → 汇总「成功 N / 失败 M」+ 明细（数据行号从第 2 行起 + 错误码 + message）。单文件 200 行上限，超限前端拒收并禁用导入按钮；导入完成后按钮置灰，换文件才能再导（防重复提交）。
+- `api/http.ts` 增强：`ApiError` 增加 `fieldErrors`，解析 FastAPI 422 的 `{detail:[{loc,msg}]}`，`loc` 去掉首段 `body` 后按字段回填。
+- **开发环境通路由「绝对地址」改成「Vite 代理」**：`VITE_API_BASE_URL=/api` → `vite.config.ts` 把 `/api` 重写到 `http://localhost:8000`（`VITE_PROXY_TARGET` 可覆盖）。原因见下第 1 条。
+
+**必须跟着改的地方**
+
+1. **后端没有 CORS 中间件**（`app/main.py` 里没有 `CORSMiddleware`）。4.1 交接单里写的「`.env.development` 默认 `http://localhost:8000`」在联调时会被浏览器直接拦（跨域）。本轮没动后端，改前端走同源代理。**发令部要定口径**：生产部署统一 Nginx 同源反代（当前 `.env.production` 留空就是这个假设），还是要后端补 CORS。
+2. **`.env.development` 已从 `http://localhost:8000` 改为 `/api`**。这是对 4.1 交接单的偏离，理由同上；`web/README.md` 已同步。
+3. **班级表单的课程下拉没有维护入口**：05 §3.1 有 `/courses` 接口但本步范围不含课程页（5 页里没有课程）。现在必须先有课程才能建班，联调时是直接调接口建的一条。**若不安排课程维护页，这个洞会卡住真实使用**，请在新指令里明确由哪一步补。
+4. **教室没有删除接口**（05 §2.6 只有 POST/GET/PATCH），所以教室页只有「新建/编辑」，没有删除确认。「同一套模式含删除确认」对教室不适用。
+5. **家长列表接口没有绑定字段**（`ParentOut` 只有 id/name/phone/wechat_user_id/created_at）。前端用 `GET /bindings?page_size=100` + `GET /students?page_size=100` 聚合展示，未新增接口。机构家长数或绑定数超过 100 时会漏，规模上来需要后端在 `ParentOut` 里加 `bound_students`。
+6. **导入是逐条 POST，不是事务**：中途失败时前面已入库；报告逐行列出，重跑会重复（学生无手机号唯一约束，家长会报 `PARENT_DUPLICATED`）。这是指令「逐条调用既有接口」的必然结果，已如实记录。
+7. 学生 `contact` 的 11 位手机号规则只在前端，后端仍是 `max_length=64`。要支持座机得同时放宽前端规则。
+
+**给发令部的指令**
+
+- 后续页面复用 `web/src/api/*.ts` + `composables/usePagedList` + 「筛选/表格/分页」三件套，**不要另起一套列表逻辑**。
+- 422 字段回显统一走 `ApiError.fieldErrors`（键 = 后端 `loc` 去掉首段 body，如 `body.capacity` → `capacity`），页面把 `serverErrors[字段]` 绑到 `el-form-item` 的 `error` 上。
+- 权限只写 `meta.roles`，页面里禁止再判断角色（4.1 立的规矩继续有效）。
+- 4.3 排课页需要的下拉已有现成函数：`listCourses` / `listTeachers` / `listClassrooms` / `listClasses`（`web/src/api/course.ts`、`archive.ts`）。
+- 课程维护页缺口见上第 3 条，请明确排期。
+- 导入导出仍是纯前端（无后端接口），后续需要「导入失败可下载错误行」这类能力时再单独发指令。
+
+**验证（本轮实打实跑过）**
+
+- `pnpm build`（`vue-tsc --noEmit` + `vite build`）通过。
+- 起本地 PG（55432）+ `uvicorn` + `scripts/seed_demo.py`，Playwright 驱动本机 Edge 打**真后端**，46 条断言全过：5 页增改查、归档/停用状态位与二次确认、重复手机号字段级回显、绑定/解绑、班级满员 `CLASS_FULL`、学员移出、导出 CSV 前 3 字节 `ef bb bf` 且表头正确、导入 2 成功 1 失败（第 4 行 `PARENT_DUPLICATED`）、201 行被拒、teacher 直输 `/archive/students` `/classes` `/archive` 全部 403。
 
 ### [4.1] 2026-10-30 17:45 · commit `605a218`（已推送，CI 41034979954 全绿）
 
@@ -309,3 +349,4 @@ DELETE /tenant-holidays/{id}                                             → 204
 | 3.4 | `5af6cc5` | `POST /lessons`（复用 `create_lesson` 补引用校验）、`PATCH /lessons/{id}`（moved/cancelled，`LESSON_ALREADY_DONE` 守门 + `LESSON_OVERLAP`）、`POST /makeup-lessons`（纯排期写 attendance makeup 行，不碰流水） |
 | 3.5 | `a22d03c` | 签到扣课（同事务 + 逐学生 SAVEPOINT + 唯一键幂等 + makeup 原地转正）；`GET attendance`；`org_config` 规则读写 + `updated_by/updated_at`（迁移 `0010`）；修对账脚本孤儿包误报 |
 | 4.1 | `605a218` | `web/` 管理端骨架：登录、Pinia 登录态、Axios（Bearer + 401 单航班续期）、角色菜单、路由守卫（redirect 回跳 / 越权 403）、占位页；CI 加 `web` job。零后端改动 |
+| 4.2 | `350b713` | 学生/家长/老师/教室/班级 5 个管理页 + 学员名单抽屉 + CSV 导出（BOM）+ 批量导入（papaparse，逐条 POST，200 行上限）；`ApiError.fieldErrors` 接 422 字段回显；开发环境改 Vite 代理 `/api`（后端无 CORS） |
