@@ -14,7 +14,7 @@
 
 ## §0 交接区（最新在最上面）
 
-### [5.4] 2026-10-31 02:45 · commit `ea4070e`（后端）+ `8692979`（小程序），均已推送
+### [5.4] 2026-10-31 02:45 · commit `ea4070e`（后端）+ `8692979`（小程序），均已推送；CI `41101795266` 重跑后四 job 全绿
 
 **我改了什么**
 
@@ -68,6 +68,7 @@
 - 迁移实跑：`alembic upgrade head` 到 `0011_subscribe_auth_quota`，`subscribe_auth` 的列类型 / 默认值逐个核过（`available_count` int NOT NULL default 0、`updated_at` timestamptz 可空）。
 - 静态校验（本机无微信开发者工具）：8 个页面四件套齐全、全部 js `node --check`、全部 json 可解析、WXML 标签栈闭合。
 - `web/` 一行未动（本步不涉及管理端）。
+- CI `41101795266`（docs commit `e47a246`）：`lint` / `web` / `docker-smoke` 绿；`test` 首轮 `1 failed, 280 passed` —— 唯一失败是**既存并发死锁 flake**（`tests/test_conflict.py::test_concurrent_insert_exactly_one_wins` 在 EXCLUDE 约束的并发插入里拿到 `40P01 deadlock` 而不是 `23P01`，与 5.2 的 `41093190247` 同一根因，本步未碰排课写路径），重跑（attempt 2）**四 job 全绿**。**这个 flake 至今没修**：一次真实并发占位可能以 `40P01` 冒成 500 而不是 409，建议单开一步给 `create_lesson` 加 savepoint + 重试（08 §0 已提过，仍未获指令）。
 
 ### [5.3] 2026-10-31 02:20 · commit `c20eea0`（已推送，CI `41097038041` 四 job 全绿）
 
