@@ -1,6 +1,7 @@
 """Request/response schemas for parent self-service endpoints."""
 
 from datetime import date, datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -97,4 +98,43 @@ class MeLedgerItem(BaseModel):
 
 class MeLedgerResponse(BaseModel):
     items: list[MeLedgerItem]
+    total: int
+
+
+class SubscribeTemplateItem(BaseModel):
+    """§10 占位 + 5.4：微信订阅消息模板（后端配置下发，小程序不硬编码）。"""
+
+    template_id: str
+    type: str
+    scene: str
+
+
+class SubscribeTemplateList(BaseModel):
+    items: list[SubscribeTemplateItem]
+
+
+class SubscribeAuthResult(BaseModel):
+    """家长在 ``wx.requestSubscribeMessage`` 弹窗里的选择。
+
+    没有 ``wechat_user_id`` 字段：身份只能来自 token（06 文档红线）。
+    """
+
+    template_id: str
+    status: Literal["accept", "reject", "ban"]
+
+
+class SubscribeAuthRequest(BaseModel):
+    results: list[SubscribeAuthResult] = Field(min_length=1, max_length=20)
+
+
+class SubscribeAuthItem(BaseModel):
+    """一条授权记录的最新状态 + 剩余可发送额度（6.2 扣这个数）。"""
+
+    template_id: str
+    status: str
+    available_count: int
+
+
+class SubscribeAuthResponse(BaseModel):
+    items: list[SubscribeAuthItem]
     total: int

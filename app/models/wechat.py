@@ -7,9 +7,19 @@ as the same human across the mini program and future service accounts
 consumed per tenant (phase 2).
 """
 
+from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import ForeignKey, Index, String, UniqueConstraint, Uuid, text
+from sqlalchemy import (
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    UniqueConstraint,
+    Uuid,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -42,7 +52,7 @@ class WechatOpenid(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
 
 
 class SubscribeAuth(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
-    """Subscription-message authorisation record (phase 2, 0.7)."""
+    """Subscription-message authorisation record (5.4 collects, 6.2 sends)."""
 
     __tablename__ = "subscribe_auth"
     __table_args__ = (UniqueConstraint("tenant_id", "wechat_user_id", "template_id"),)
@@ -57,3 +67,7 @@ class SubscribeAuth(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, server_default=text("'authorized'")
     )
+    # 一次性订阅的语义：家长每「接受」一次就多一次可发送额度，重复接受继续累加。
+    # 6.2 发一条扣 1，扣到 0 就不能再发（reject/ban 不清零，已经攒下的额度仍有效）。
+    available_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

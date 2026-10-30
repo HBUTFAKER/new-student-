@@ -3,8 +3,39 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class SubscribeTemplate(BaseModel):
+    """One subscription-message template the mini program may ask for.
+
+    ``template_id`` is the WeChat template id (or a stub in local/test/CI);
+    ``type`` follows WeChat's one-time vs long-term dichotomy; ``scene`` is our
+    own label (``lesson_remind`` / ``balance_warn`` / ...) so 6.2 can pick a
+    template by business event instead of hard-coding ids in the client.
+    """
+
+    template_id: str = Field(min_length=1, max_length=64)
+    type: Literal["one_time", "long_term"] = "one_time"
+    scene: str = Field(default="generic", min_length=1, max_length=32)
+
+
+def _default_subscribe_templates() -> list[SubscribeTemplate]:
+    """Stub templates so local/test/CI never need a real WeChat account.
+
+    Production must override ``WECHAT_SUBSCRIBE_TEMPLATES`` (JSON) with the ids
+    taken from the mini-program console; the stub ids only exist to keep the
+    whole chain testable offline.
+    """
+
+    return [
+        SubscribeTemplate(template_id="stub_lesson_remind", type="one_time", scene="lesson_remind"),
+        SubscribeTemplate(template_id="stub_balance_warn", type="one_time", scene="balance_warn"),
+        SubscribeTemplate(
+            template_id="stub_lesson_cancelled", type="long_term", scene="lesson_cancelled"
+        ),
+    ]
 
 
 class Settings(BaseSettings):
@@ -45,6 +76,12 @@ class Settings(BaseSettings):
     wechat_app_id: str = "wx_platform_stub"
     wechat_app_secret: str = ""
     wechat_stub_mode: bool = True
+
+    # 5.4: subscription-message templates are backend config, never hard-coded in
+    # the mini program. Env: WECHAT_SUBSCRIBE_TEMPLATES='[{"template_id": ...}]'.
+    wechat_subscribe_templates: list[SubscribeTemplate] = Field(
+        default_factory=_default_subscribe_templates
+    )
 
     @field_validator("database_url", "migration_database_url")
     @classmethod

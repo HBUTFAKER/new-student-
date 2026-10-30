@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import CurrentPrincipal, DbSession
 from app.api.permissions import get_parent_scope
 from app.core.auth import Principal
+from app.core.config import get_settings
 from app.core.errors import AppError
 from app.db.tenant import tenant_context
 from app.schemas.ledger import LedgerType
@@ -27,6 +28,11 @@ from app.schemas.me import (
     MeScheduleResponse,
     MeStudentItem,
     MeStudentList,
+    SubscribeAuthItem,
+    SubscribeAuthRequest,
+    SubscribeAuthResponse,
+    SubscribeTemplateItem,
+    SubscribeTemplateList,
 )
 from app.services.auth import switch_active_student, wechat_bindings
 from app.services.bindings import redeem_invite_code
@@ -36,6 +42,7 @@ from app.services.portal import (
     child_schedule,
     resolve_schedule_window,
 )
+from app.services.subscribe import record_subscribe_auths
 
 router = APIRouter(prefix="/me", tags=["me"])
 
@@ -146,6 +153,34 @@ async def child_session(db: DbSession, principal: CurrentPrincipal) -> AsyncIter
 ChildSession = Annotated[AsyncSession, Depends(child_session)]
 
 
+async def parent_tenant_session(
+    db: DbSession, principal: CurrentPrincipal
+) -> AsyncIterator[AsyncSession]:
+    """订阅授权用的**机构级**闸门（比 ``child_session`` 少一道「激活孩子」）。
+
+    授权记录挂在 ``(tenant_id, wechat_user_id, template_id)`` 上，跟具体孩子无关，
+    所以只要求「家长 + 当前机构在实时绑定集合里」，不要求选中某个孩子。
+    但机构不能凭空来：token 里的 ``tenant_id`` 必须仍能在绑定集合里找到，
+    否则就是换了机构的旧 token，一律 403 ``OUT_OF_SCOPE``。
+    """
+
+    if principal.role != "parent" or principal.subject_id is None:
+        raise AppError(403, "OUT_OF_SCOPE", "仅家长可访问")
+    if principal.tenant_id is None:
+        raise AppError(403, "OUT_OF_SCOPE", "请先绑定并选择孩子")
+
+    scope = await get_parent_scope(db, principal)
+    if not any(binding.tenant_id == principal.tenant_id for binding in scope.bindings):
+        raise AppError(403, "OUT_OF_SCOPE", "当前机构不在绑定集合内")
+
+    await db.rollback()
+    async with tenant_context(db, principal.tenant_id):
+        yield db
+
+
+ParentTenantSession = Annotated[AsyncSession, Depends(parent_tenant_session)]
+
+
 def _active_student_id(principal: Principal) -> UUID:
     """``child_session`` 已保证非空，这里只是把 Optional 收窄成 UUID。"""
 
@@ -231,4 +266,74 @@ async def my_ledger(
             for item in items
         ],
         total=total,
+    )
+
+
+@router.get(
+    "/subscribe-templates",
+    response_model=SubscribeTemplateList,
+    summary="订阅消息模板列表（后端配置下发）",
+)
+async def my_subscribe_templates(principal: CurrentPrincipal) -> SubscribeTemplateList:
+    """5.4：给 ``wx.requestSubscribeMessage`` 用的模板 id 全从这里拿，小程序不硬编码。
+
+    不要求选孩子：登录后的家长就能读，模板本身不含任何业务数据。
+    """
+
+    if principal.role != "parent" or principal.subject_id is None:
+        raise AppError(403, "OUT_OF_SCOPE", "仅家长可访问")
+
+    templates = get_settings().wechat_subscribe_templates
+    return SubscribeTemplateList(
+        items=[
+            SubscribeTemplateItem(
+                template_id=template.template_id,
+                type=template.type,
+                scene=template.scene,
+            )
+            for template in templates
+        ]
+    )
+
+
+@router.post(
+    "/subscribe-auths",
+    response_model=SubscribeAuthResponse,
+    summary="上报订阅授权结果（只收授权，不发消息）",
+)
+async def save_subscribe_auths(
+    payload: SubscribeAuthRequest,
+    db: ParentTenantSession,
+    principal: CurrentPrincipal,
+) -> SubscribeAuthResponse:
+    """5.4：``accept`` 累加额度，``reject``/``ban`` 只改状态不清零。
+
+    200 而非 201：语义是 upsert（同一条授权会被反复接受），不是纯创建。
+    """
+
+    wechat_user_id = principal.subject_id
+    tenant_id = principal.tenant_id
+    if wechat_user_id is None or tenant_id is None:
+        raise AppError(403, "OUT_OF_SCOPE", "请先绑定并选择孩子")
+
+    allowed = frozenset(
+        template.template_id for template in get_settings().wechat_subscribe_templates
+    )
+    outcomes = await record_subscribe_auths(
+        db,
+        tenant_id=tenant_id,
+        wechat_user_id=wechat_user_id,
+        results=payload.results,
+        allowed_template_ids=allowed,
+    )
+    return SubscribeAuthResponse(
+        items=[
+            SubscribeAuthItem(
+                template_id=outcome.template_id,
+                status=outcome.status,
+                available_count=outcome.available_count,
+            )
+            for outcome in outcomes
+        ],
+        total=len(outcomes),
     )
