@@ -8,11 +8,105 @@
 > - 发令部：读 §0 最新一块 + §4 已锁定约定，再出指令。别只看 01~07 原文，那是基线，不是现状。
 > - 开发：动表结构、动既有测试、动已上线接口前，先读 §1 与 §2。
 
-当前状态：**阶段 3 收官（3.5 完成）**，Alembic head = `0010_org_config_audit`，全库 26 张表（业务层 19 张）。阶段 4 进行中：**4.1 前端骨架 + 4.2 档案与班级管理页 + 4.3 排课日历与拖拽调课已完成**（`web/`，三轮均零后端改动、零迁移）。
+当前状态：**阶段 3 收官（3.5 完成）**，Alembic head = `0010_org_config_audit`，全库 26 张表（业务层 19 张）。阶段 4 进行中：**4.1 前端骨架 + 4.2 档案与班级管理页 + 4.3 排课日历与拖拽调课 + 4.4 上（三个只读报表接口）已完成**。4.4 上是阶段 4 唯一动后端的部分：零迁移、零新表。
 
 ---
 
 ## §0 交接区（最新在最上面）
+
+### [4.4 上] 2026-10-30 23:58 · commit `2834336`（已推送，CI 41082564404 四 job 全绿）
+
+**我改了什么**
+
+- 三个**只读**报表接口，权限统一 `OfficeUser`（admin / registrar），teacher 一律 403：
+  - `GET /reports/attendance-summary?from=&to=&class_id=&detail=`
+  - `GET /reports/consumption?from=&to=`
+  - `GET /reports/teacher-hours?from=&to=`
+- 全部走 `GROUP BY` 聚合（SQLAlchemy 表达式，没有裸 SQL 拼串，也没有把明细捞进 Python 求和）。**零写操作、零迁移、不加表不加列**，表数仍 26 / 业务层 19。
+- 窗口 `[from, to)` 左闭右开；入参先 `astimezone(BUSINESS_TZ)` 再进 SQL。校验：不带时区 → 422 `TIMEZONE_REQUIRED`；`from >= to` → 422 `RANGE_INVALID`；跨度 > 366 天 → 422 `RANGE_TOO_LARGE`。
+- 出勤率 = `present / (present + leave + absent)`，四舍五入到整数百分比（半进位，不是银行家舍入）；**分母 0 → `null`**。`cancelled` 与「未开始」课次一律不计。`makeup` 预登记态按到课计，并在 `notes` 里写明条数。
+- 课耗只认 `type='consume'`：`total_consumed = SUM(-delta)`、`lesson_count = 行数`；窗口按 `created_at`；`by_class` 用 `lesson_id → class` 取班级。
+- 老师课时 `total_minutes` 用 `end_at - start_at` 的**实际差值**（不读 `course.duration_min`），`completed_count` = `start_at <= now()` 的节数。
+- 新增 `tests/test_reports.py`（9 项，含一个纯函数的半进位单测）：75% / 50% / `null` 三种口径、cancelled 与未来课次不计、跨租户只看到自家、teacher 403、缺参 / 倒序 / 超跨度 / 不带时区 422。
+
+**响应形状（029 前端直接用）**
+
+`GET /reports/attendance-summary`（`student_rows` 只在 `detail=true` 时填充，其余情况是空数组）
+
+```json
+{
+  "from": "2026-11-01T00:00:00+08:00",
+  "to": "2026-12-01T00:00:00+08:00",
+  "items": [
+    { "class_id": "uuid", "class_name": "冲刺A班", "lesson_count": 4,
+      "present": 3, "leave": 1, "absent": 0, "attendance_rate": 75 }
+  ],
+  "total": 1,
+  "student_rows": [
+    { "student_id": "uuid", "student_name": "王小明",
+      "present": 3, "leave": 1, "absent": 0, "attendance_rate": 75 }
+  ],
+  "notes": ["有 2 条 makeup 预登记考勤，尚未转正，已按出勤计入"]
+}
+```
+
+`GET /reports/consumption`
+
+```json
+{
+  "from": "2026-11-01T00:00:00+08:00",
+  "to": "2026-12-01T00:00:00+08:00",
+  "items": [
+    { "student_id": "uuid", "student_name": "王小明", "total_consumed": 8, "lesson_count": 8 }
+  ],
+  "total": 1,
+  "by_class": [
+    { "student_id": "uuid", "class_id": "uuid", "class_name": "冲刺A班",
+      "consumed": 6, "lesson_count": 6 }
+  ]
+}
+```
+
+`GET /reports/teacher-hours`
+
+```json
+{
+  "from": "2026-11-01T00:00:00+08:00",
+  "to": "2026-12-01T00:00:00+08:00",
+  "items": [
+    { "teacher_id": "uuid", "teacher_name": "王老师",
+      "lesson_count": 20, "completed_count": 12, "total_minutes": 1800 }
+  ],
+  "total": 1
+}
+```
+
+**必须跟着改的地方**
+
+1. **这是对 05 §8 的偏离，必须点名**：05 §8 原文是「报表一期无接口（US-213/215/302 均为二期）」。4.4 施工清单要求一期出出勤率 / 课耗 / 老师课时，故**一期扩这三个只读接口**；经营报表（`/reports/operations`）、续费预警、群发、审计日志**仍全部二期，一行没做**。
+2. **`from`/`to` 必须带时区**。只传 `2026-11-01` 会 422 `TIMEZONE_REQUIRED`。前端拼「11 月」应当是 `from=2026-11-01T00:00:00+08:00&to=2026-12-01T00:00:00+08:00`。
+3. **窗口左闭右开**：`to` 当天的课次不算进本月；要包含 11/30 的课，`to` 得写 12/1 0 点。
+4. **出勤率 `null` ≠ 0%**：一个班有课但没人被点名时返回 `null`，前端要显示「无数据」；0% 表示点了名但全缺勤。
+5. `student_rows` 字段**始终存在**，`detail` 没传时是空数组（不是 `null`、不是省略）。
+6. **`attendance-summary` 只统计 `start_at <= now()` 的课次**。给未来课次预打考勤不会进报表（但 `GET /lessons/{id}/attendance` 仍能读到）。
+7. `consumption.by_class` 的 `consumed` 之和**恒等于** `items.total_consumed`；`lesson_id` 为空的异常流水会以 `class_id: null` 出现，不隐藏、不吞掉。
+8. **老师不开放报表**（0.2 矩阵 + 4.1 菜单本来就没有报表页）。要开属于权限矩阵变更，单独发指令。
+9. **没有新增索引**。现有 `ix_lesson_tenant_id_{class,teacher,classroom}_start_at`、`ix_attendance_tenant_id_student_id`、`ix_lesson_ledger_tenant_id_{type,lesson_id}` 足够；单租户课次到十万级再评估。
+10. 报表接口**不分页**：聚合结果按班级 / 学生 / 老师一行一个，单机构条目数有限。以后要「按学生展开 + 翻页」需要另设计。
+
+**给发令部的指令**
+
+- 029 前端报表页按上面的响应形状直接渲染，**不要在前端再算一遍出勤率**（自己拿 `present/(present+leave+absent)` 除会把 `null` 口径丢掉）。
+- 时间筛选复用 `web/src/utils/timetable.ts` 的时区换算，**别用 `new Date().toISOString().slice(0, 10)`**——那是 UTC 日期，月初/月末会串月。
+- 三个接口都没有分页字段，表格直接用 `items`，`total` 就是条目数。
+- 029 若要做「点班级下钻到学生」，用同一个接口加 `detail=true` + `class_id`，不需要新接口。
+
+**验证（本地实跑）**
+
+- `RUN_DB_TESTS=1 pytest tests/test_reports.py` → **9 passed**。
+- 手工 curl 三个接口 + SQL 逐项核对：A 班一节课 `1 present + 1 leave` → `attendance_rate: 50`；课耗 `SUM(-delta)` 与流水一致；老师课时 3 节 270 分钟（含 1 节未来、排除 1 节 cancelled）。
+- 本地全量：`test_conflict.py` / `test_ledger.py` 在 Windows 上有既存的 event-loop 复用 flake（**在 HEAD 上同样复现，与本步无关**），其余全绿。
+- CI `41082564404`：`lint` / `test` / `web` / `docker-smoke` 四 job 全绿。
 
 ### [4.3] 2026-10-30 21:40 · commit `98631ae`（已推送，CI 41067465029 全绿）
 
@@ -392,3 +486,4 @@ DELETE /tenant-holidays/{id}                                             → 204
 | 4.1 | `605a218` | `web/` 管理端骨架：登录、Pinia 登录态、Axios（Bearer + 401 单航班续期）、角色菜单、路由守卫（redirect 回跳 / 越权 403）、占位页；CI 加 `web` job。零后端改动 |
 | 4.2 | `350b713` | 学生/家长/老师/教室/班级 5 个管理页 + 学员名单抽屉 + CSV 导出（BOM）+ 批量导入（papaparse，逐条 POST，200 行上限）；`ApiError.fieldErrors` 接 422 字段回显；开发环境改 Vite 代理 `/api`（后端无 CORS） |
 | 4.3 | `98631ae` | 排课日历（自绘周网格 + 月概览）+ 原生拖拽调课（15 分钟吸附、本地老师/教室预检、乐观更新 + 409 明细回滚）+ 课次详情/调课/取消 + 新增单次课；搭车补课程维护页；`ApiError.detail` 透传 `error.conflicts`。零后端改动 |
+| 4.4 上 | `2834336` | 三个只读报表接口：`/reports/attendance-summary`（按班级 + `detail` 按学生）、`/reports/consumption`（含 `by_class`）、`/reports/teacher-hours`；`OfficeUser` 收口；窗口 `[from,to)` 按 UTC+8，366 天上限；`null` 出勤率、makeup 计入并注明；零迁移、零写操作、零新表 |
