@@ -14,6 +14,7 @@ from app.api.routes import (
     me,
     org_config,
     platform,
+    report,
     schedule,
     trade,
 )
@@ -29,6 +30,7 @@ api_router.include_router(holiday.router)
 api_router.include_router(lesson.router)
 api_router.include_router(attendance.router)
 api_router.include_router(org_config.router)
+api_router.include_router(report.router)
 api_router.include_router(ledger.router)
 api_router.include_router(trade.router)
 api_router.include_router(platform.router)
