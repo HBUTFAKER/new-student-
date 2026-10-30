@@ -26,7 +26,7 @@
 - `GET /lessons/{lesson_id}/attendance`（200，`{items,total}`，含 `student_id/status/deduct_lessons/operator_id`），权限同写入。
 - `GET /org-config/absence-deduct-rule`：教务/管理员/老师可读；`PATCH` 仅 admin/registrar；非法值 422 `RULE_VALUE_INVALID`；留痕 `updated_by`/`updated_at`。
 - 迁移 `0010_org_config_audit`：`org_config` 加 `updated_by`（uuid）、`updated_at`（timestamptz）两列。**不加表**，表数仍 26 / 业务层 19。
-- 测试 11 项（`tests/test_attendance.py`）；全量 244 passed。
+- 测试 12 项（`tests/test_attendance.py`，含验收线「签到 3 次扣 3 课时」）；全量 245 passed。
 
 **必须跟着改的地方**
 
