@@ -14,7 +14,7 @@
 
 ## §0 交接区（最新在最上面）
 
-### [5.2] 2026-10-31 01:15 · commit `待填`（已推送，CI `待填`）
+### [5.2] 2026-10-31 01:15 · commit `f43e593`（已推送；功能轮 CI `41093190247` 的 `test` job 挂在**既存并发 flake**，`lint` / `web` / `docker-smoke` 绿，详见「验证」末条）
 
 **我改了什么**
 
@@ -54,6 +54,16 @@
 - web Playwright **30 项全过**（真后端 + Edge）：学生行有「邀请码」、弹窗标题带姓名、默认 24 小时、过期码显示「已过期」且整行置灰且无复制按钮、有效码「可用」且有复制、生成的码形状 `AB12-CD34`、7 天档的到期时间落在 6.5–7.5 天、家长 API 兑换后刷新变「已使用」+ 使用人摘要 + 复制按钮消失、重开弹窗不残留上次的大字、老师调发码接口 403 `OUT_OF_SCOPE`、老师菜单无「学生档案」、老师直访学生页被拦、全程 0 条控制台报错。
 - `pnpm typecheck`（`vue-tsc --noEmit`）与 `pnpm build` 均通过。
 - **一次偶发记录**：首轮在新库上跑冒烟时，绑定第二个孩子报 `INVITE_CODE_INVALID`，但该码在库里 `used_at is null` 且未过期。随后清空业务表重建、连跑 4 次均未复现，未定位到根因。若再出现，优先查 `auth_invite_code` 与 `set_config('app.tenant_id')` 的交互。
+- **CI `41093190247` 的 `test` job 失败 = 既存 flake，与本步无关**（本步 26 个文件全在 `miniprogram/`、`web/`、`docs/`；`app/`、`alembic/`、`tests/` 一行未动）。本地按 CI 同款环境复现（`APP_ENV=test` + 干净库 + `RUN_DB_TESTS=1`，`alembic upgrade head`）：
+
+  | 轮次 | 结果 | 失败项 |
+  |------|------|--------|
+  | 第 1 轮（干净库） | 253 passed / 1 failed | `test_conflict.py::test_concurrent_insert_exactly_one_wins` —— 一侧拿到 `DBAPIError: deadlock detected`（40P01），不是 `AppError(409)` |
+  | 该测试单独重跑 3 次 | 8 passed ×3 | 未复现 |
+  | 第 2 轮（同一库连跑） | 253 passed / 1 failed | `test_ledger.py::test_reconcile_script_reports_zero_drift`（脏库残留导致，CI 每轮空库，不适用） |
+  | 第 3 轮（重建干净库） | **254 passed** | — |
+
+  结论：`EXCLUDE` 约束下两条并发插入互相等对方的 speculative insertion，PostgreSQL 会判死锁（40P01）而不是排他冲突（23P01），`create_lesson` 只把 23P01 翻成 409，于是偶发红。**这是既有并发路径的真实缺陷（生产上并发排同一时段偶发 500 而非 409），不是本步引入的**；本步按 031 禁令不动后端，只重推复跑。建议发令部单开一步修：`create_lesson` 对 40P01/40001 做一次 savepoint 内重试（重试时预检能看到已提交的胜者，自然落到 409）。
 
 ### [5.1] 2026-10-31 00:52 · commit `ee406c7`（已推送，CI 41089429270 四 job 全绿）
 
@@ -610,3 +620,4 @@ DELETE /tenant-holidays/{id}                                             → 204
 | 4.4 上 | `2834336` | 三个只读报表接口：`/reports/attendance-summary`（按班级 + `detail` 按学生）、`/reports/consumption`（含 `by_class`）、`/reports/teacher-hours`；`OfficeUser` 收口；窗口 `[from,to)` 按 UTC+8，366 天上限；`null` 出勤率、makeup 计入并注明；零迁移、零写操作、零新表 |
 | 4.4 下 | `c04f073` | 报表前端三页（出勤率 / 课耗 / 老师课时）：子路由 + 菜单 3 子项、共用日期工具栏、`null` 出勤率显示「—」、detail 展开学生、by_class 展开分布、分钟→`8h 30m`、CSV 导出（BOM + 日期范围文件名）、空数据 el-empty。零后端改动、零新增依赖（dayjs 未引，用 `Intl` 锁 Asia/Shanghai） |
 | 5.1 | `ee406c7` | `miniprogram/` 家长端骨架：原生小程序 + 原生 JS，零依赖零构建链；`request-core.js` 纯逻辑（Bearer 注入 / 401 单航班续期 / 错误归一）配 15 项 node:test；登录页 + 首页孩子列表 + 绑定引导占位；openid/unionid 不落地；develop 环境假 wx_code 兜底。零后端改动、零迁移 |
+| 5.2 | `f43e593` | 小程序绑定页（输码 / 粘贴 / 扫一扫 + 错误码分流引导）+ 选择孩子页 + 登录三分支分流 + 首页「切到」原地重签；`utils/session.js` 纯函数（`mergeSession` 保 role、扫码取码降级）配 22 项 node:test；web 学生页「邀请码」弹窗（24/72/168h、大字展示、过期置灰）。冒烟 54 项、Playwright 30 项。零后端改动、零迁移 |
