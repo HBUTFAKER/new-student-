@@ -13,6 +13,15 @@ export interface Course {
   created_at: string
 }
 
+/** 05 §3.1 契约字段：name / subject / duration_min / remark / status（无单价字段） */
+export interface CoursePayload {
+  name: string
+  subject?: string | null
+  duration_min?: number | null
+  remark?: string | null
+  status?: CourseStatus
+}
+
 export interface ClassItem {
   id: string
   name: string

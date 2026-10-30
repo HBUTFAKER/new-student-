@@ -1,6 +1,6 @@
 import { http } from './http'
 import type { Student } from '@/types/archive'
-import type { ClassItem, ClassPayload, Course, Enrollment } from '@/types/course'
+import type { ClassItem, ClassPayload, Course, CoursePayload, Enrollment } from '@/types/course'
 
 type Query = Record<string, unknown>
 
@@ -9,9 +9,22 @@ interface Paged<T> {
   total: number
 }
 
-/** ---- 课程（05 §3.1，本步只读：班级表单需要课程下拉） ---- */
+/** ---- 课程（05 §3.1） ---- */
 export function listCourses(params: Query = {}): Promise<Paged<Course>> {
   return http.get<Paged<Course>>('/courses', { params }).then((r) => r.data)
+}
+
+export function createCourse(payload: CoursePayload): Promise<Course> {
+  return http.post<Course>('/courses', payload).then((r) => r.data)
+}
+
+export function updateCourse(id: string, payload: Partial<CoursePayload>): Promise<Course> {
+  return http.patch<Course>(`/courses/${id}`, payload).then((r) => r.data)
+}
+
+/** 被班级引用时后端 409 COURSE_IN_USE —— 只能停用 */
+export function deleteCourse(id: string): Promise<void> {
+  return http.delete(`/courses/${id}`).then(() => undefined)
 }
 
 /** ---- 班级（05 §3.2） ---- */

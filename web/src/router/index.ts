@@ -71,9 +71,19 @@ const routes: RouteRecordRaw[] = [
       },
       {
         path: 'scheduling',
-        name: 'scheduling',
-        component: () => import('@/views/PlaceholderView.vue'),
-        meta: { title: '排课管理', roles: OFFICE },
+        redirect: { name: 'scheduling-timetable' },
+      },
+      {
+        path: 'scheduling/timetable',
+        name: 'scheduling-timetable',
+        component: () => import('@/views/scheduling/TimetableView.vue'),
+        meta: { title: '排课日历', roles: OFFICE },
+      },
+      {
+        path: 'scheduling/courses',
+        name: 'scheduling-courses',
+        component: () => import('@/views/scheduling/CoursesView.vue'),
+        meta: { title: '课程维护', roles: OFFICE },
       },
       {
         path: 'attendance',

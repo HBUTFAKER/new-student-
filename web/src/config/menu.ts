@@ -23,7 +23,15 @@ const OFFICE_MENU: MenuItem[] = [
     ],
   },
   { title: '班级管理', path: '/classes', icon: 'Collection' },
-  { title: '排课管理', path: '/scheduling', icon: 'Calendar' },
+  {
+    title: '排课管理',
+    path: '/scheduling',
+    icon: 'Calendar',
+    children: [
+      { title: '排课日历', path: '/scheduling/timetable', icon: 'Calendar' },
+      { title: '课程维护', path: '/scheduling/courses', icon: 'Notebook' },
+    ],
+  },
   { title: '签到', path: '/attendance', icon: 'Checked' },
   { title: '报表', path: '/reports', icon: 'DataLine' },
   { title: '机构设置', path: '/settings', icon: 'Setting' },

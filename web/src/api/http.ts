@@ -16,11 +16,13 @@ declare module 'axios' {
 
 export const API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? ''
 
-/** 后端统一错误体（05 §0）：{ error: { code, message, trace_id } } */
+/** 后端统一错误体（05 §0）：{ error: { code, message, trace_id, ...detail } } */
 interface ErrorEnvelope {
   error?: {
     code?: string
     message?: string
+    trace_id?: string
+    [key: string]: unknown
   }
 }
 
@@ -29,18 +31,28 @@ export class ApiError extends Error {
   readonly status: number
   /** FastAPI 422 校验错误按字段归位：{ name: '...', capacity: '...' }，供表单一格一格回显 */
   readonly fieldErrors?: Record<string, string>
+  /** 业务错误附带的明细，原样透传（如 409 调课冲突的 conflicts 数组） */
+  readonly detail?: Record<string, unknown>
 
   constructor(
     message: string,
     code: string,
     status: number,
     fieldErrors?: Record<string, string>,
+    detail?: Record<string, unknown>,
   ) {
     super(message)
     this.name = 'ApiError'
     this.code = code
     this.status = status
     this.fieldErrors = fieldErrors
+    this.detail = detail
+  }
+
+  /** 调课/加课冲突明细（3.3 ConflictOut），没有就返回空数组 */
+  conflicts(): unknown[] {
+    const value = this.detail?.conflicts
+    return Array.isArray(value) ? value : []
   }
 }
 
@@ -126,6 +138,22 @@ function extractFieldErrors(body: unknown): Record<string, string> | undefined {
   return Object.keys(fieldErrors).length > 0 ? fieldErrors : undefined
 }
 
+/**
+ * 业务错误自带的明细（如 409 调课冲突的 `conflicts`、`SCHEDULE_CONFLICT` 的明细）。
+ * 后端把 detail 平铺在 `error` 里，这里剥掉三个固定字段后原样保留。
+ */
+function extractDetail(body: unknown): Record<string, unknown> | undefined {
+  if (!body || typeof body !== 'object') return undefined
+  const envelope = (body as ErrorEnvelope).error
+  if (!envelope || typeof envelope !== 'object') return undefined
+
+  const detail: Record<string, unknown> = { ...envelope }
+  delete detail.code
+  delete detail.message
+  delete detail.trace_id
+  return Object.keys(detail).length > 0 ? detail : undefined
+}
+
 export function toApiError(error: unknown): ApiError {
   if (error instanceof ApiError) return error
 
@@ -135,7 +163,7 @@ export function toApiError(error: unknown): ApiError {
     const fieldErrors = extractFieldErrors(body)
     const code = body?.error?.code ?? (status === 0 ? 'NETWORK_ERROR' : `HTTP_${status}`)
     const message = body?.error?.message ?? defaultMessage(status)
-    return new ApiError(message, code, status, fieldErrors)
+    return new ApiError(message, code, status, fieldErrors, extractDetail(body))
   }
 
   return new ApiError('请求失败，请稍后重试', 'UNKNOWN_ERROR', 0)
