@@ -76,15 +76,17 @@
 | app_id | VARCHAR(64) | NOT NULL | 小程序/服务号 appid |
 | openid | VARCHAR(64) | NOT NULL | |
 
-### subscribe_auth（订阅授权记录，预留）｜微信层｜二期
-索引：`UK(tenant_id, wechat_user_id, template_id)`。
+### subscribe_auth（订阅授权记录）｜微信层｜一期收授权 / 二期发送
+索引：`UK(tenant_id, wechat_user_id, template_id)`。一期（5.4）只收授权，发送通道是 6.2。
 | 字段 | 类型 | 约束 | 说明 |
 |------|------|------|------|
 | id | UUID | PK | |
 | tenant_id | UUID | NOT NULL FK→tenant.id | |
-| wechat_user_id | UUID | NOT NULL FK→wechat_user.id | |
-| template_id | VARCHAR(64) | NOT NULL | 订阅消息模板 |
-| status | VARCHAR(16) | NOT NULL 默认 'authorized' | authorized/expired |
+| wechat_user_id | UUID | NOT NULL FK→wechat_user.id | 只从 token 解析，客户端不得指定 |
+| template_id | VARCHAR(64) | NOT NULL | 订阅消息模板（后端配置下发） |
+| status | VARCHAR(16) | NOT NULL 默认 'authorized' | authorized / rejected / banned |
+| available_count | INTEGER | NOT NULL 默认 0 | 可发送额度：accept 一次 +1，reject/ban 不清零；6.2 发一条扣 1（5.4 加列） |
+| updated_at | TIMESTAMPTZ | | 最近一次授权动作（5.4 加列） |
 
 ---
 

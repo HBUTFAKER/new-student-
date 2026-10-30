@@ -8,11 +8,66 @@
 > - 发令部：读 §0 最新一块 + §4 已锁定约定，再出指令。别只看 01~07 原文，那是基线，不是现状。
 > - 开发：动表结构、动既有测试、动已上线接口前，先读 §1 与 §2。
 
-当前状态：**阶段 3 收官（3.5 完成）**，Alembic head = `0010_org_config_audit`，全库 26 张表（业务层 19 张）。**阶段 4 收官**：4.1 前端骨架 + 4.2 档案与班级管理页 + 4.3 排课日历与拖拽调课 + 4.4 上（三个只读报表接口）+ 4.4 下（报表前端页）全部完成。4.4 上是阶段 4 唯一动后端的部分：零迁移、零新表。**阶段 5 进行中**：5.1 家长端小程序骨架 + 登录 + 请求封装、5.2 邀请码绑定 + 多孩子切换 + 管理端发码入口、5.3 课表/余额/扣课明细（三个 `/me` 只读接口 + 小程序三页 + 首页改工作台）均已完成。5.3 是阶段 5 首次动后端：**零迁移、零新表、零写路径改动**。
+当前状态：**阶段 3 收官（3.5 完成）**，Alembic head = `0011_subscribe_auth_quota`，全库 26 张表（业务层 19 张）。**阶段 4 收官**：4.1 前端骨架 + 4.2 档案与班级管理页 + 4.3 排课日历与拖拽调课 + 4.4 上（三个只读报表接口）+ 4.4 下（报表前端页）全部完成。4.4 上是阶段 4 唯一动后端的部分：零迁移、零新表。**阶段 5 进行中**：5.1 家长端小程序骨架 + 登录 + 请求封装、5.2 邀请码绑定 + 多孩子切换 + 管理端发码入口、5.3 课表/余额/扣课明细（三个 `/me` 只读接口 + 小程序三页 + 首页改工作台）、5.4 订阅授权收集（迁移 `0011` 给 `subscribe_auth` 加 `available_count` / `updated_at` + 两个 `/me` 接口 + 小程序自动授权与「通知设置」页）均已完成。5.3 是阶段 5 首次动后端（零迁移）；5.4 是阶段 5 第二个动后端的步骤（**加列不加表**，表数仍 26）。
 
 ---
 
 ## §0 交接区（最新在最上面）
+
+### [5.4] 2026-10-31 02:45 · commit `ea4070e`（后端）+ `8692979`（小程序），均已推送
+
+**我改了什么**
+
+后端（迁移 `0011` + 两个接口，**加列不加表**）
+
+1. `subscribe_auth` 加两列（`0011_subscribe_auth_quota`）：
+   - `available_count INTEGER NOT NULL DEFAULT 0` —— 一次性模板每 accept 一次 +1，**重复接受继续累加**；
+   - `updated_at timestamptz` —— 最近一次授权动作，6.2 判断新鲜度用。
+
+   表数仍 26 / 业务层 19，`test_models` / `test_migrations` 的数字没动；但 `test_no_table_has_updated_at` 多了一个登记例外（`subscribe_auth`，第二个；第一个是 `org_config`）。
+2. `app/core/config.py`：`wechat_subscribe_templates`（JSON env `WECHAT_SUBSCRIBE_TEMPLATES`），默认 3 条 **stub**（`stub_lesson_remind` / `stub_balance_warn` / `stub_lesson_cancelled`）。生产必须用 env 覆盖；代码里的 stub 只为 local / test / CI 能离线跑。
+3. `app/services/subscribe.py`：`record_subscribe_auths` —— 先整批校验模板 id，再逐条 `INSERT ... ON CONFLICT DO UPDATE`。
+4. `app/api/routes/me.py`：`GET /me/subscribe-templates`、`POST /me/subscribe-auths`，新增机构级闸门 `parent_tenant_session`。
+5. `app/schemas/me.py`：模板 / 授权共五组模型。
+
+小程序
+
+6. `utils/subscribe.js` 纯逻辑（18 项 node:test）：拆 3 个一批、版本化标记（问过不再弹）、`wx` 回调解析、状态文案。
+7. `utils/subscribe-runner.js`：读模板 → 弹窗 → 上报 → 落标记，全程静默、单例串行。
+8. 首页**拿到当前孩子之后**触发一次收集（没选孩子不弹，避免白弹一次 + 后端 403）；底部加不显眼的「通知设置」入口 → 新页 `pages/notify/`（看状态 + 手动重新授权）。`app.json` 变 8 页。
+
+**必须跟着改的地方**
+
+1. **`available_count` 的语义（6.2 全靠它，别改）**
+   - `accept` → `status='authorized'`、`available_count += 1`。微信一次性订阅的语义就是「每接受一次 +1 次可发送额度」，**不是**「已授权就幂等」；
+   - `reject` / `ban` → 只改 `status`（`rejected` / `banned`），**不动** `available_count`；家长这次拒绝不作废历史额度；
+   - 6.2 发送成功后自行 `available_count -= 1`，到 0 就不能发。发送失败要不要退还，6.2 自己定（本步一行扣减都没写）。
+2. **扣额度也要原子**：本步写入是 `INSERT ... ON CONFLICT DO UPDATE`（键 `(tenant_id, wechat_user_id, template_id)`），没有「先查后写」。6.2 扣额度要用 `UPDATE ... SET available_count = available_count - 1 WHERE available_count > 0`，别读出来再写回去。
+3. **模板 id 只有一个来源**：`Settings.wechat_subscribe_templates`。小程序不硬编码，管理端也没有配置页；加模板改 env，不改代码。
+4. **`POST /me/subscribe-auths` 返回 200**（upsert 语义），不是 201。验收脚本别按 201 写。
+5. **授权是机构级**（`tenant_id + wechat_user_id + template_id`），跟孩子无关：`parent_tenant_session` 只要求「家长 + 当前机构在实时绑定集合里」，**不要求选孩子**；`GET /me/subscribe-templates` 连机构都不要求（登录家长即可读）。
+6. **小程序本地标记**存 `wx` storage 的 `subscribe` 键，结构 `{version, marks:{template_id:{status,at}}}`；`COLLECT_VERSION` 一改全部失效重问。别在别处写同名键。
+7. **授权入口统一走 `utils/subscribe-runner.js`**（内部单例串行）：后续加新的授权触发点也走它，别直接调 `wx.requestSubscribeMessage`，否则并发弹窗会互相打架。
+8. **`test_no_table_has_updated_at` 现在放行两张表**（`org_config`、`subscribe_auth`）；再加第三张就红，要按「加列必改清单」同步。
+9. **04 字典已同步**：`subscribe_auth` 标题从「预留 / 二期」改成「一期收授权 / 二期发送」，补了两列与三个状态值。
+
+**给发令部的指令**
+
+- 6.2 取授权用 `available_count > 0 AND status='authorized'`。`ban` 是微信「总是保持以上选择」，**不是普通 reject**——微信侧不会再弹窗，只能引导家长去设置页，别指望下次授权能翻回来。
+- 模板配置目前只有 env，没有管理端页面。若 6.2 要让机构自选模板，得加管理端配置页 + 改存储（现在是进程内配置，多实例要一起改 env），建议单独一步。
+- 5.4 **没做授权过期**：微信一次性额度本身没有明确过期时间，产品也没给「多久不用作废」的口径。6.2 若要按天失效，得加列（走 §1 加列流程）。
+- 「拒绝后不反复弹窗」目前靠**小程序本地 storage**，换手机 / 清缓存会重新弹一次。要服务端兜底，得让 `GET /me/subscribe-templates` 带 `status`（现在不带，模板是纯配置）——要做请明说，改动不大。
+- `POST /me/subscribe-auths` 单次上限 20 条（Pydantic 限制）；一次微信弹窗最多 3 条，够用。
+- 口径裁决已记：**订阅授权收集提前到一期（5.4）**，05 §11 的 `POST /notifications/subscribe` 行作废，改由上面两个接口承担；**发送通道仍是 6.2**，本步没写任何发送逻辑。
+
+**验证（本地实跑）**
+
+- 干净库 `python -m pytest -q`（`RUN_DB_TESTS=1` + `alembic upgrade head`）：**281 passed**（原 269 + 新增 12 项 `tests/test_me_subscribe.py`）。
+- `node --test`：request-core 15 + session 22 + portal 20 + subscribe 18 = **75 项全过**。
+- 真后端冒烟：**84 项全过**（72 → +12），连跑 3 轮无差。授权段用 mock 的 `wx.requestSubscribeMessage`；额度断言先「reject 读基线」再 accept，同一库反复跑不假失败。
+- 迁移实跑：`alembic upgrade head` 到 `0011_subscribe_auth_quota`，`subscribe_auth` 的列类型 / 默认值逐个核过（`available_count` int NOT NULL default 0、`updated_at` timestamptz 可空）。
+- 静态校验（本机无微信开发者工具）：8 个页面四件套齐全、全部 js `node --check`、全部 json 可解析、WXML 标签栈闭合。
+- `web/` 一行未动（本步不涉及管理端）。
 
 ### [5.3] 2026-10-31 02:20 · commit `c20eea0`（已推送，CI `41097038041` 四 job 全绿）
 
@@ -598,7 +653,29 @@ DELETE /tenant-holidays/{id}                                             → 204
 - 05 原文：`?class_id=&teacher_id=&from=&to=&page=`
 - 实际：`?class_id=&from=&to=&page=`，**没有 `teacher_id`**。老师/家长按班级收窄留给课表接口（US-101）。
 
-### 2.6 尚未实现（后置，不是遗漏）
+### 2.6 新增：家长端订阅授权（5.4）
+
+05 只在 §11 二期清单里写了一行 `POST /notifications/subscribe`，没有契约。5.4 落地为两个 `/me` 接口（家长身份，不新开 `/notifications` 命名空间）：
+
+```
+GET  /me/subscribe-templates
+→ 200 { "items": [{ "template_id": "stub_lesson_remind", "type": "one_time", "scene": "lesson_remind" }] }
+
+POST /me/subscribe-auths
+请求 { "results": [{ "template_id": "...", "status": "accept" | "reject" | "ban" }] }   # 1–20 条
+→ 200 { "items": [{ "template_id": "...", "status": "authorized", "available_count": 2 }], "total": 1 }
+```
+
+- **`wechat_user_id` 不进 body**：身份只从 token 解析（06 红线）；body 里塞别人的 id 会被忽略（有测试断言）。
+- **`tenant_id` 取当前机构上下文**：未绑定/未选孩子 → 403 `OUT_OF_SCOPE`，一行不落。
+- **状态映射**：`accept → authorized`（`available_count += 1`）、`reject → rejected`、`ban → banned`；后两者**不动**额度。
+- **未知模板 422 `SUBSCRIBE_TEMPLATE_UNKNOWN`**，且整批拒绝（先校验后写，避免半批脏数据）。
+- 返回 **200 而非 201**：语义是 upsert（同一个模板会被反复接受），不是纯创建。
+- 写入用 `INSERT ... ON CONFLICT DO UPDATE` 一条语句：并发双击不会「先查后写」撞唯一键，也不会像排课 EXCLUDE 那样被判死锁。
+- 模板列表**不要求选孩子**（登录家长即可读），授权上报要求机构上下文。
+- 口径裁决：**订阅授权收集提前到一期（5.4）**；05 §11 的 `POST /notifications/subscribe` 行作废，改由上面两个接口承担；**发送通道仍是 6.2**，本步一行发送逻辑都没写。
+
+### 2.7 尚未实现（后置，不是遗漏）
 
 | 项 | 出处 | 归属 |
 |----|------|------|
@@ -619,11 +696,12 @@ DELETE /tenant-holidays/{id}                                             → 204
 | `invite_code` | 新增（第 18 张业务表） | 1.6 |
 | `tenant_holiday` | 新增（第 19 张业务表 / 全库第 26 张） | 3.2 |
 | `org_config` | **加列**（不加表）：`updated_by` uuid、`updated_at` timestamptz，US-217 最小留痕 | 3.5 |
+| `subscribe_auth` | **加列**（不加表）：`available_count` int NOT NULL 默认 0（订阅额度，6.2 扣它）、`updated_at` timestamptz（最近一次授权动作） | 5.4 |
 
 - 表数口径：平台层 4 + 微信层 3 + 业务层 19 = **26**。
 - `tenant_holiday` 无 `updated_at`/`deleted_at`：节假日不软删，DELETE 物理删除后可重新登记。
 - 模型属性名 `holiday_date`，列名仍是 `date`（避开 `datetime.date` 遮蔽）。
-- `org_config` 是 **唯一** 带 `updated_at` 的表（US-217 留痕，迁移 `0010`）。`tests/test_models.py` 的「无表可有 updated_at」断言已把它列为唯一例外；其他表再加就红。完整审计日志（US-304）仍是后续阶段。
+- 带 `updated_at` 的表**只有两张**：`org_config`（US-217 留痕，迁移 `0010`）与 `subscribe_auth`（5.4 额度，迁移 `0011`）。`tests/test_models.py` 的「无表可有 updated_at」断言已把这两张列为例外；其他表再加就红。完整审计日志（US-304）仍是后续阶段。
 
 ---
 
@@ -666,3 +744,4 @@ DELETE /tenant-holidays/{id}                                             → 204
 | 5.1 | `ee406c7` | `miniprogram/` 家长端骨架：原生小程序 + 原生 JS，零依赖零构建链；`request-core.js` 纯逻辑（Bearer 注入 / 401 单航班续期 / 错误归一）配 15 项 node:test；登录页 + 首页孩子列表 + 绑定引导占位；openid/unionid 不落地；develop 环境假 wx_code 兜底。零后端改动、零迁移 |
 | 5.2 | `f43e593` | 小程序绑定页（输码 / 粘贴 / 扫一扫 + 错误码分流引导）+ 选择孩子页 + 登录三分支分流 + 首页「切到」原地重签；`utils/session.js` 纯函数（`mergeSession` 保 role、扫码取码降级）配 22 项 node:test；web 学生页「邀请码」弹窗（24/72/168h、大字展示、过期置灰）。冒烟 54 项、Playwright 30 项。零后端改动、零迁移 |
 | 5.3 | `c20eea0` | 家长端只读三件套：`GET /me/schedule`（31 天窗口、`cancelled` 不返回、`makeup` 由考勤座反推）、`/me/balance`（复用 ledger 的 `total_balance` / `student_packages`，只下有效包）、`/me/ledger`（复用 `ledger_query`，默认 20 上限 100）；统一 `child_session` 闸（角色 → 激活孩子 → 实时绑定复核 → 租户上下文）；小程序首页改工作台 + 课表/余额/明细三页 + `utils/portal.js` 纯逻辑。零迁移、零新表、零写路径改动 |
+| 5.4 | `ea4070e` | 订阅授权收集（只收不发）：迁移 `0011` 给 `subscribe_auth` 加 `available_count`（accept 累加、reject/ban 不清零）+ `updated_at`；`GET /me/subscribe-templates`（后端配置下发、小程序不硬编码）、`POST /me/subscribe-auths`（`wechat_user_id` 只认 token、未知模板整批 422、`ON CONFLICT` 原子 upsert）；新闸门 `parent_tenant_session`（机构级，不要求选孩子）；小程序 `utils/subscribe.js` 纯逻辑 18 项 + 首页自动收集 + 「通知设置」页手动重授权。加列不加表，表数仍 26 |
