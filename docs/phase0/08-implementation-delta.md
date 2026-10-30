@@ -14,7 +14,7 @@
 
 ## §0 交接区（最新在最上面）
 
-### [5.3] 2026-10-31 02:20 · commit `待填`（已推送）
+### [5.3] 2026-10-31 02:20 · commit `c20eea0`（已推送）
 
 **我改了什么**
 
@@ -665,4 +665,4 @@ DELETE /tenant-holidays/{id}                                             → 204
 | 4.4 下 | `c04f073` | 报表前端三页（出勤率 / 课耗 / 老师课时）：子路由 + 菜单 3 子项、共用日期工具栏、`null` 出勤率显示「—」、detail 展开学生、by_class 展开分布、分钟→`8h 30m`、CSV 导出（BOM + 日期范围文件名）、空数据 el-empty。零后端改动、零新增依赖（dayjs 未引，用 `Intl` 锁 Asia/Shanghai） |
 | 5.1 | `ee406c7` | `miniprogram/` 家长端骨架：原生小程序 + 原生 JS，零依赖零构建链；`request-core.js` 纯逻辑（Bearer 注入 / 401 单航班续期 / 错误归一）配 15 项 node:test；登录页 + 首页孩子列表 + 绑定引导占位；openid/unionid 不落地；develop 环境假 wx_code 兜底。零后端改动、零迁移 |
 | 5.2 | `f43e593` | 小程序绑定页（输码 / 粘贴 / 扫一扫 + 错误码分流引导）+ 选择孩子页 + 登录三分支分流 + 首页「切到」原地重签；`utils/session.js` 纯函数（`mergeSession` 保 role、扫码取码降级）配 22 项 node:test；web 学生页「邀请码」弹窗（24/72/168h、大字展示、过期置灰）。冒烟 54 项、Playwright 30 项。零后端改动、零迁移 |
-| 5.3 | `待填` | 家长端只读三件套：`GET /me/schedule`（31 天窗口、`cancelled` 不返回、`makeup` 由考勤座反推）、`/me/balance`（复用 ledger 的 `total_balance` / `student_packages`，只下有效包）、`/me/ledger`（复用 `ledger_query`，默认 20 上限 100）；统一 `child_session` 闸（角色 → 激活孩子 → 实时绑定复核 → 租户上下文）；小程序首页改工作台 + 课表/余额/明细三页 + `utils/portal.js` 纯逻辑。零迁移、零新表、零写路径改动 |
+| 5.3 | `c20eea0` | 家长端只读三件套：`GET /me/schedule`（31 天窗口、`cancelled` 不返回、`makeup` 由考勤座反推）、`/me/balance`（复用 ledger 的 `total_balance` / `student_packages`，只下有效包）、`/me/ledger`（复用 `ledger_query`，默认 20 上限 100）；统一 `child_session` 闸（角色 → 激活孩子 → 实时绑定复核 → 租户上下文）；小程序首页改工作台 + 课表/余额/明细三页 + `utils/portal.js` 纯逻辑。零迁移、零新表、零写路径改动 |
