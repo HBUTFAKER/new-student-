@@ -57,6 +57,8 @@
   </block>
 
   <view class="home__footer">
+    <!-- 不显眼的通知设置入口：给家长一个反悔/重新授权的口子（033 可选做） -->
+    <view class="home__notify" bindtap="goNotify">通知设置</view>
     <button class="btn btn--ghost" bindtap="onLogout">退出登录</button>
   </view>
 </view>

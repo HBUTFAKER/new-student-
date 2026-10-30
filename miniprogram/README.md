@@ -2,7 +2,7 @@
 
 原生微信小程序 + 原生 JS，**零 npm 依赖、零构建链**。用微信开发者工具「导入项目」直接选这个目录（`miniprogram/`）就能跑。
 
-对应 `docs/phase0/032-instruction`（5.3）：骨架 + 登录 + 绑定/切孩子（5.2）+ 课表 / 余额 / 扣课明细三页（5.3）。
+对应 `docs/phase0/033-instruction`（5.4）：骨架 + 登录 + 绑定/切孩子（5.2）+ 课表 / 余额 / 扣课明细（5.3）+ 订阅授权收集（5.4）。
 
 ## 目录
 
@@ -17,6 +17,8 @@ miniprogram/
     request.js               wx.request 适配层，把上面那层接到小程序
     session.js               会话合并（保留 role / 回填 bound_students）+ 邀请码归一化 + 错误码映射
     portal.js                三页纯逻辑：固定 +08:00 的周窗口推算、时间格式化、按天分组、徽章、分页判定
+    subscribe.js             订阅授权纯逻辑：拆 3 个一批、版本化标记（问过不再弹）、wx 回调解析、状态文案
+    subscribe-runner.js      订阅授权的 wx 粘合：读模板 → 弹窗 → 上报 → 落标记，全程静默
     auth.js                  login / bindChild / switchStudent，三个都会重签 token
   pages/
     login/                   首屏；已有 token 直接 reLaunch；登录后按 needBind / needSwitch 分流
@@ -26,11 +28,13 @@ miniprogram/
     schedule/                周课表：按天分组、moved「已调」/ makeup「补课」徽章、翻周、下拉刷新
     balance/                 课时余额：大字 total（负数红字 + 欠课时提示）、包剩余与到期日
     ledger/                  扣课明细：类型徽章 + 增减课时，上拉加载更多、下拉刷新
+    notify/                  通知设置：看每条模板的授权状态，手动重新授权（给家长反悔的口子）
   tests/
     request-core.test.js     node:test 单测（15 项）
     session.test.js          node:test 单测（22 项）
     portal.test.js           node:test 单测（20 项）
-    live-smoke.js            真后端联调冒烟（手动跑，72 项）
+    subscribe.test.js        node:test 单测（18 项）
+    live-smoke.js            真后端联调冒烟（手动跑，84 项）
 ```
 
 ## 本地联调
@@ -51,19 +55,20 @@ miniprogram/
 
 ```bash
 # 纯逻辑单测（不依赖后端；031 依旧按要求没往 CI 里加小程序 job）
-node --test miniprogram/tests/request-core.test.js miniprogram/tests/session.test.js miniprogram/tests/portal.test.js
+node --test miniprogram/tests/request-core.test.js miniprogram/tests/session.test.js miniprogram/tests/portal.test.js miniprogram/tests/subscribe.test.js
 
 # 真后端冒烟（要先起后端；脚本会自己建学生、自己发码绑定，不依赖特定种子数据）
 MP_API_BASE=http://127.0.0.1:8000 node miniprogram/tests/live-smoke.js
 ```
 
-`live-smoke.js` 自带前置造数：学生不够就用教务接口建，起始身份没绑定就现场发码绑一个；5.3 段还会现场建课程/班级/课次，并在**下一周的空档**里挑时段（同一库反复跑不会撞跨班冲突）。默认教务账号 `13000000001 / demo123456`（可用 `MP_ADMIN_PHONE` / `MP_ADMIN_PASSWORD` 覆盖），已绑定账号 `live_smoke_openid|live_smoke_unionid`（`MP_BOUND_CODE`）。
+`live-smoke.js` 自带前置造数：学生不够就用教务接口建，起始身份没绑定就现场发码绑一个；5.3 段还会现场建课程/班级/课次，并在**下一周的空档**里挑时段；5.4 段用 mock 的 `wx.requestSubscribeMessage` 走完整条授权链路（弹窗 → 上报 → 本地标记 → 不再重弹）。同一库反复跑都不会假失败。默认教务账号 `13000000001 / demo123456`（可用 `MP_ADMIN_PHONE` / `MP_ADMIN_PASSWORD` 覆盖），已绑定账号 `live_smoke_openid|live_smoke_unionid`（`MP_BOUND_CODE`）。
 
 「跨机构切换」那条是软断言：库里只有单一机构时会打印 `skip`，不会假失败。要硬验就得造第二个租户 + 学生。
 
 ## 要人工确认的事（自动化覆盖不到）
 
-- **微信开发者工具编译通过**（本机没装工具，这步只能人跑；已做等价静态校验：全部 js `node --check`、json 可解析、七个页面四件套齐全、WXML 标签栈闭合）。
+- **微信开发者工具编译通过**（本机没装工具，这步只能人跑；已做等价静态校验：全部 js `node --check`、json 可解析、八个页面四件套齐全、WXML 标签栈闭合）。
+- **真实订阅消息弹窗**：`wx.requestSubscribeMessage` 需要真实 appid + 后台配置的模板 id；游客模式/开发工具里弹不出来是正常的，冒烟里用 mock 覆盖了逻辑分支。
 - 真机预览：`wx.login` 拿真 code、`request` 域名校验、下拉刷新手感。
 - 三个页面在 iOS / Android 上的排版（WXSS 刻意避开了 flex `gap`，怕安卓 X5 老内核不认）。
 
@@ -74,3 +79,4 @@ MP_API_BASE=http://127.0.0.1:8000 node miniprogram/tests/live-smoke.js
 - [ ] 小程序后台 → 开发管理 → 服务器域名 → request 合法域名加该域名
 - [ ] 确认 `ALLOW_FAKE_WX_CODE` 在正式包里不生效（它只认 `envVersion === 'develop'`）
 - [ ] 后端 `WECHAT_APP_SECRET` 配好、`WECHAT_STUB_MODE=false`
+- [ ] 小程序后台 → 订阅消息 → 选好模板，把模板 id 填进后端 `WECHAT_SUBSCRIBE_TEMPLATES`（JSON），别改代码里的 stub 默认值

@@ -1,0 +1,99 @@
+.notify__head {
+  padding: 8rpx 4rpx 24rpx;
+}
+
+.notify__title {
+  font-size: 40rpx;
+  font-weight: 600;
+}
+
+.notify__meta {
+  margin-top: 10rpx;
+  line-height: 1.5;
+}
+
+.notify__skeleton {
+  display: flex;
+  flex-direction: column;
+}
+
+.notify__bar {
+  height: 32rpx;
+  border-radius: 8rpx;
+  background: #eef0f3;
+}
+
+.notify__bar + .notify__bar {
+  margin-top: 20rpx;
+}
+
+.notify__bar--short {
+  width: 45%;
+}
+
+.notify__error {
+  margin-top: 0;
+}
+
+.notify__retry {
+  margin-top: 24rpx;
+}
+
+.notify__tip {
+  line-height: 1.5;
+}
+
+.notify__hint {
+  margin-top: 24rpx;
+  font-size: 24rpx;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.notify__action {
+  margin-top: 24rpx;
+}
+
+/* 不用 flex gap：安卓 X5 老内核不认 */
+.row {
+  display: flex;
+  align-items: center;
+  margin-top: 16rpx;
+}
+
+.row__main {
+  flex: 1;
+  min-width: 0;
+}
+
+.row__title {
+  font-size: 30rpx;
+  font-weight: 500;
+}
+
+.row__type {
+  margin-top: 6rpx;
+  font-size: 24rpx;
+}
+
+.row__status {
+  margin-left: 16rpx;
+  font-size: 24rpx;
+  padding: 6rpx 16rpx;
+  border-radius: 999rpx;
+}
+
+.row__status--on {
+  color: #0f9960;
+  background: rgba(15, 153, 96, 0.1);
+}
+
+.row__status--off {
+  color: var(--danger);
+  background: rgba(217, 48, 38, 0.08);
+}
+
+.row__status--none {
+  color: var(--text-weak);
+  background: #f2f3f5;
+}

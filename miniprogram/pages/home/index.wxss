@@ -140,3 +140,11 @@
   margin-top: auto;
   padding-top: 48rpx;
 }
+
+/* 不显眼：12 号灰字，居中，给需要的人找得到就行 */
+.home__notify {
+  text-align: center;
+  font-size: 24rpx;
+  color: #9aa1ab;
+  padding: 16rpx 0 8rpx;
+}

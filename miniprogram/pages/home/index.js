@@ -10,6 +10,7 @@
 var http = require('../../utils/request')
 var storage = require('../../utils/storage')
 var portal = require('../../utils/portal')
+var subscribeRunner = require('../../utils/subscribe-runner')
 
 var ENTRIES = [
   {
@@ -82,6 +83,8 @@ Page({
             : null,
           bound: students.length,
         })
+        // 有当前孩子才收授权：没选孩子时后端会 403，别白弹一次窗
+        if (active) that.collectSubscribe()
         return students
       })
       .catch(function (error) {
@@ -103,6 +106,25 @@ Page({
 
   onRetry: function () {
     this.load()
+  },
+
+  /**
+   * 进首页后触发一次订阅授权收集（033）。
+   *
+   * 每个页面实例只试一次：本地标记会把问过的模板挡掉，真正防重弹靠
+   * `utils/subscribe.js` 的版本化标记，这里只是省掉一次无意义的接口往返。
+   * 全链路静默——弹不出来、上报失败都不影响家长看课表。
+   */
+  collectSubscribe: function () {
+    if (this.subscribeTried) return
+    this.subscribeTried = true
+    subscribeRunner.collect().catch(function () {
+      return []
+    })
+  },
+
+  goNotify: function () {
+    wx.navigateTo({ url: '/pages/notify/index' })
   },
 
   goSwitch: function () {

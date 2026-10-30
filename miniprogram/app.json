@@ -6,7 +6,8 @@
     "pages/switch-student/index",
     "pages/schedule/index",
     "pages/balance/index",
-    "pages/ledger/index"
+    "pages/ledger/index",
+    "pages/notify/index"
   ],
   "window": {
     "navigationBarBackgroundColor": "#2f6fed",

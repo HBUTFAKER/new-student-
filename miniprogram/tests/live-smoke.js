@@ -583,6 +583,104 @@ async function main() {
   const backBalance = await http.get('/me/balance', { silent: true })
   check('切回来余额复原', () => assert.equal(backBalance.total, balanceAfter.total))
 
+  // ---------- 13. 5.4 订阅授权收集 ----------
+  const templates = await http.get('/me/subscribe-templates', { silent: true })
+  check('模板列表来自后端配置（3 条）', () => assert.equal(templates.items.length, 3))
+  check('模板带 type / scene，小程序不硬编码', () => {
+    templates.items.forEach((item) => {
+      assert.ok(item.template_id)
+      assert.ok(item.type === 'one_time' || item.type === 'long_term')
+      assert.ok(item.scene)
+    })
+  })
+
+  // 弹窗 mock：全部 accept，并记下每次请求的模板 id
+  const asked = []
+  global.wx.requestSubscribeMessage = function (options) {
+    asked.push(options.tmplIds.slice())
+    const response = { errMsg: 'requestSubscribeMessage:ok' }
+    options.tmplIds.forEach((id) => {
+      response[id] = 'accept'
+    })
+    options.success(response)
+  }
+
+  // runner 依赖 request/config，必须在 BASE 覆盖之后才 require（模块单例）
+  const subscribeRunner = require('../utils/subscribe-runner')
+  const collected = await subscribeRunner.collect({ force: true })
+  check('一次弹窗最多带 3 个模板（微信限制）', () => {
+    assert.equal(asked.length, 1)
+    assert.equal(asked[0].length, 3)
+  })
+  check('全 accept 时 3 条都拿到结果', () => assert.equal(collected.length, 3))
+
+  const secondRun = await subscribeRunner.collect()
+  check('问过的模板不再自动弹', () => assert.equal(asked.length, 1))
+  check('第二次 collect 为空（本地标记挡住）', () => assert.equal(secondRun.length, 0))
+
+  // 同一库反复跑时额度会累积，所以先「reject 读基线」——reject 不改额度，
+  // 返回的 available_count 就是当前值，比再开一个查询接口省事。
+  const remind = templates.items[0].template_id
+  const baseline = await http.post(
+    '/me/subscribe-auths',
+    { results: [{ template_id: remind, status: 'reject' }] },
+    { silent: true },
+  )
+  const baselineCount = baseline.items[0].available_count
+  check('reject 单独发也能落库', () => {
+    assert.equal(baseline.items[0].status, 'rejected')
+    assert.ok(baselineCount >= 1) // 上一段 collect 已经 accept 过一次
+  })
+
+  const acceptAgain = await http.post(
+    '/me/subscribe-auths',
+    { results: [{ template_id: remind, status: 'accept' }] },
+    { silent: true },
+  )
+  check('再 accept 一次额度 +1', () => {
+    assert.equal(acceptAgain.items[0].available_count, baselineCount + 1)
+    assert.equal(acceptAgain.items[0].status, 'authorized')
+  })
+
+  const rejectOne = await http.post(
+    '/me/subscribe-auths',
+    { results: [{ template_id: remind, status: 'reject' }] },
+    { silent: true },
+  )
+  check('reject 只改状态，额度不清零', () => {
+    assert.equal(rejectOne.items[0].status, 'rejected')
+    assert.equal(rejectOne.items[0].available_count, baselineCount + 1)
+  })
+
+  const banOne = await http.post(
+    '/me/subscribe-auths',
+    { results: [{ template_id: templates.items[1].template_id, status: 'ban' }] },
+    { silent: true },
+  )
+  check('ban 落 banned', () => assert.equal(banOne.items[0].status, 'banned'))
+
+  let unknownError = null
+  try {
+    await http.post(
+      '/me/subscribe-auths',
+      { results: [{ template_id: 'not-configured', status: 'accept' }] },
+      { silent: true },
+    )
+  } catch (error) {
+    unknownError = error
+  }
+  check('未配置的模板整批 422', () => {
+    assert.ok(unknownError)
+    assert.equal(unknownError.status, 422)
+    assert.equal(unknownError.code, 'SUBSCRIBE_TEMPLATE_UNKNOWN')
+  })
+
+  check('storage 里没有 openid / unionid（红线）', () => {
+    const raw = JSON.stringify(Array.from(store.entries()))
+    assert.equal(raw.includes('openid'), false)
+    assert.equal(raw.includes('unionid'), false)
+  })
+
   report()
 }
 

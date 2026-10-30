@@ -1,0 +1,42 @@
+<view class="page notify">
+  <view class="notify__head">
+    <view class="notify__title">通知设置</view>
+    <view class="muted notify__meta">上课提醒、课时不足提醒都是微信订阅消息，需要你点一次「允许」。</view>
+  </view>
+
+  <view wx:if="{{loading}}" class="card notify__skeleton">
+    <view class="notify__bar"></view>
+    <view class="notify__bar notify__bar--short"></view>
+  </view>
+
+  <view wx:elif="{{error}}" class="card">
+    <view class="error-box notify__error">{{error}}</view>
+    <button class="btn btn--ghost notify__retry" bindtap="load">重新加载</button>
+  </view>
+
+  <block wx:else>
+    <view wx:if="{{!supported}}" class="card notify__tip">
+      当前微信版本不支持订阅消息，升级微信后再试。
+    </view>
+
+    <view wx:if="{{rows.length === 0}}" class="card notify__tip muted">
+      机构还没有配置通知模板，暂时不需要授权。
+    </view>
+
+    <view class="card row" wx:for="{{rows}}" wx:key="template_id">
+      <view class="row__main">
+        <view class="row__title">{{item.title}}</view>
+        <view class="muted row__type">{{item.type === 'long_term' ? '长期订阅' : '一次性订阅'}}</view>
+      </view>
+      <view class="row__status row__status--{{item.tone}}">{{item.label}}</view>
+    </view>
+
+    <view class="muted notify__hint">
+      拒绝后不会再自动弹窗；想改主意，点下面的按钮重新授权。
+    </view>
+
+    <button class="btn notify__action" loading="{{asking}}" disabled="{{asking || !supported}}" bindtap="onAuthorize">
+      重新授权
+    </button>
+  </block>
+</view>
