@@ -14,7 +14,7 @@
 
 ## §0 交接区（最新在最上面）
 
-### [4.4 下] 2026-10-31 00:20 · commit `待填`（已推送，CI `待填`）
+### [4.4 下] 2026-10-31 00:20 · commit `c04f073`（已推送，CI 41087069037 四 job 全绿）
 
 **我改了什么**
 
@@ -48,7 +48,7 @@
 - `pnpm build`（`vue-tsc --noEmit` + `vite build`）通过；三个报表页各自独立 chunk。
 - Playwright 驱动本机 Edge 打**真后端**（嵌入式 PG + uvicorn），**49 条断言全过**：菜单 3 子项、`/reports` 重定向、布局标题、4 个班级行、A 班 2/3/1/0/75%、B 班「—」、C 班 0%、makeup notes alert、按学生展开 2 人（王小明 3 到课 75% / 李小红 33%）、关闭开关表格消失、CSV 前三字节 `ef bb bf` + 含「75%」+ 文件名带日期范围、班级筛选只剩 1 行、课耗 2 人（王小明 3 课时）与展开行班级分布、老师 6 节/5 完成/8h 30m、点「上月」出 `el-empty` 且不渲染表格、teacher 菜单无报表且直访被拦 403、全程 0 条 JS 报错。
 - 造数（临时脚本，未入库）：4 班 5 课次 7 条考勤 4 条 consume 流水，含 1 条未来课（只为验证 `completed_count < lesson_count`）与 1 条 makeup。
-- CI：见下方「4.4 下 CI」补记。
+- CI `41087069037`：`lint` / `test` / `web` / `docker-smoke` 四 job 全绿。
 
 ### [4.4 上] 2026-10-30 23:58 · commit `2834336`（已推送，CI 41082564404 四 job 全绿）
 
@@ -523,4 +523,4 @@ DELETE /tenant-holidays/{id}                                             → 204
 | 4.2 | `350b713` | 学生/家长/老师/教室/班级 5 个管理页 + 学员名单抽屉 + CSV 导出（BOM）+ 批量导入（papaparse，逐条 POST，200 行上限）；`ApiError.fieldErrors` 接 422 字段回显；开发环境改 Vite 代理 `/api`（后端无 CORS） |
 | 4.3 | `98631ae` | 排课日历（自绘周网格 + 月概览）+ 原生拖拽调课（15 分钟吸附、本地老师/教室预检、乐观更新 + 409 明细回滚）+ 课次详情/调课/取消 + 新增单次课；搭车补课程维护页；`ApiError.detail` 透传 `error.conflicts`。零后端改动 |
 | 4.4 上 | `2834336` | 三个只读报表接口：`/reports/attendance-summary`（按班级 + `detail` 按学生）、`/reports/consumption`（含 `by_class`）、`/reports/teacher-hours`；`OfficeUser` 收口；窗口 `[from,to)` 按 UTC+8，366 天上限；`null` 出勤率、makeup 计入并注明；零迁移、零写操作、零新表 |
-| 4.4 下 | `待填` | 报表前端三页（出勤率 / 课耗 / 老师课时）：子路由 + 菜单 3 子项、共用日期工具栏、`null` 出勤率显示「—」、detail 展开学生、by_class 展开分布、分钟→`8h 30m`、CSV 导出（BOM + 日期范围文件名）、空数据 el-empty。零后端改动、零新增依赖（dayjs 未引，用 `Intl` 锁 Asia/Shanghai） |
+| 4.4 下 | `c04f073` | 报表前端三页（出勤率 / 课耗 / 老师课时）：子路由 + 菜单 3 子项、共用日期工具栏、`null` 出勤率显示「—」、detail 展开学生、by_class 展开分布、分钟→`8h 30m`、CSV 导出（BOM + 日期范围文件名）、空数据 el-empty。零后端改动、零新增依赖（dayjs 未引，用 `Intl` 锁 Asia/Shanghai） |
