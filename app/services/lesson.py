@@ -21,7 +21,7 @@ from datetime import date, datetime, time, timedelta
 from uuid import UUID
 
 from sqlalchemy import Row, func, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError
@@ -32,6 +32,14 @@ from app.models.schedule import Lesson, ScheduleRule
 from app.services.conflict import Conflict, find_conflicts
 from app.services.holiday import holiday_dates
 from app.services.ledger import BUSINESS_TZ, business_today
+
+# 单次加课时，两个事务若同时通过预检并插同一时段，EXCLUDE 约束会走 Postgres 的
+# speculative insertion：双方互相等待对方的 token，`40P01`（deadlock）或 `40001`
+# （serialization failure）就会代替预期中的 `23P01` 冒出来，变成 500。
+# 这两类错误可以在 SAVEPOINT 回滚后重试：赢家提交后，重试的 INSERT 会看到已存在
+# 行，稳定落成 `23P01` → 409。重试次数取 3 只为兜住「三方同时抢」的极端情形。
+_RETRYABLE_INSERT_SQLSTATES = frozenset({"40P01", "40001"})
+_INSERT_ATTEMPTS = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,6 +196,17 @@ async def _ensure_lesson_refs(
         raise AppError(422, "TEACHER_INACTIVE", "老师已停用，不能排课")
 
 
+def _schedule_conflict(clashes: list[Conflict]) -> AppError:
+    """409 SCHEDULE_CONFLICT，带上冲突明细（管理端靠 ``detail.conflicts`` 弹窗）。"""
+
+    return AppError(
+        409,
+        "SCHEDULE_CONFLICT",
+        "该时段与已有课次冲突",
+        detail={"conflicts": [clash.to_dict() for clash in clashes]},
+    )
+
+
 async def create_lesson(
     db: AsyncSession,
     *,
@@ -200,9 +219,14 @@ async def create_lesson(
 ) -> Lesson:
     """Insert a single lesson, rejecting any three-dimension clash with 409.
 
-    Used by the concurrency test now and the 3.4 single-add endpoint later.
+    Used by the 3.4 single-add endpoint and the concurrency test.
     The EXCLUDE constraints are the backstop: if the pre-check races and the
     INSERT still violates exclusion, ``23P01`` is translated to 409.
+
+    The race window is not only "one wins, one violates": two transactions
+    inserting the same slot can deadlock on each other's speculative-insertion
+    token (``40P01`` / ``40001``). That is retried inside a savepoint so the
+    caller still gets a clean 409 instead of a 500 — see the constants above.
     """
 
     _require_aware_time(start_at, end_at)
@@ -219,30 +243,48 @@ async def create_lesson(
         end_at=end_at,
     )
     if clashes:
-        raise AppError(
-            409,
-            "SCHEDULE_CONFLICT",
-            "该时段与已有课次冲突",
-            detail={"conflicts": [clash.to_dict() for clash in clashes]},
-        )
+        raise _schedule_conflict(clashes)
 
-    lesson = Lesson(
-        tenant_id=tenant_id,
-        class_id=class_id,
-        classroom_id=classroom_id,
-        teacher_id=teacher_id,
-        start_at=start_at,
-        end_at=end_at,
-        status="normal",
-    )
-    db.add(lesson)
-    try:
-        await db.flush()
-    except IntegrityError as exc:
-        if getattr(exc.orig, "sqlstate", None) == "23P01":
-            raise AppError(409, "SCHEDULE_CONFLICT", "该时段与已有课次冲突") from exc
-        raise
-    return lesson
+    for attempt in range(1, _INSERT_ATTEMPTS + 1):
+        lesson = Lesson(
+            tenant_id=tenant_id,
+            class_id=class_id,
+            classroom_id=classroom_id,
+            teacher_id=teacher_id,
+            start_at=start_at,
+            end_at=end_at,
+            status="normal",
+        )
+        try:
+            # SAVEPOINT：INSERT 失败（含死锁）时只回滚这一段，外层事务还能继续
+            # 用同一个连接重试。对象建在 savepoint 里面，回滚后不会残留成待插入。
+            async with db.begin_nested():
+                db.add(lesson)
+                await db.flush()
+        except DBAPIError as exc:
+            # 死锁抛的是裸 DBAPIError（不是 IntegrityError），所以这里按 sqlstate 分流。
+            sqlstate = getattr(exc.orig, "sqlstate", None)
+            if sqlstate == "23P01":
+                # 预检被并发绕过后才走到这里：补一次明细查询，管理端弹窗要 detail.conflicts。
+                # 查询本身若也失败（连接已不可用），退回不带明细的 409，别拿 500 顶掉 409。
+                try:
+                    late_clashes = await find_conflicts(
+                        db,
+                        classroom_id=classroom_id,
+                        teacher_id=teacher_id,
+                        class_id=class_id,
+                        start_at=start_at,
+                        end_at=end_at,
+                    )
+                except DBAPIError:
+                    late_clashes = []
+                raise _schedule_conflict(late_clashes) from exc
+            if sqlstate in _RETRYABLE_INSERT_SQLSTATES and attempt < _INSERT_ATTEMPTS:
+                continue
+            raise
+        return lesson
+
+    raise AssertionError("unreachable: insert attempts exhausted without raising")
 
 
 async def _ensure_adjustable(db: AsyncSession, lesson: Lesson) -> None:
