@@ -8,11 +8,45 @@
 > - 发令部：读 §0 最新一块 + §4 已锁定约定，再出指令。别只看 01~07 原文，那是基线，不是现状。
 > - 开发：动表结构、动既有测试、动已上线接口前，先读 §1 与 §2。
 
-当前状态：**阶段 3 收官（3.5 完成）**，Alembic head = `0010_org_config_audit`，全库 26 张表（业务层 19 张）。
+当前状态：**阶段 3 收官（3.5 完成）**，Alembic head = `0010_org_config_audit`，全库 26 张表（业务层 19 张）。阶段 4 已开工：**4.1 管理端前端骨架完成**（`web/`，零后端改动、零迁移）。
 
 ---
 
 ## §0 交接区（最新在最上面）
+
+### [4.1] 2026-10-30 17:45 · commit `605a218`（已推送，CI 41034979954 全绿）
+
+**我改了什么**
+
+- 新增 `web/`：Vite 6 + Vue 3.5 + TS 5.9 + Element Plus 2.14 + Vue Router 4 + Pinia 3，pnpm 12（`packageManager` 锁版本，`pnpm-lock.yaml` 已提交）。**`app/`、`alembic/`、`tests/`、`scripts/` 一行未动，零迁移**。
+- 登录页（唯一业务页）：`POST /auth/login`，手机号 + 密码，401 `AUTH_FAILED` 用后端原文内联提示（不弹层）。
+- token：`access_token` 内存 + localStorage 双存，`refresh_token` 同存，角色与账号存 `wb.profile`；刷新页面登录态不丢。
+- `web/src/api/http.ts`：自动 `Authorization: Bearer`；401 用 refresh 续期并**重放原请求**，并发 401 走**单航班**（一次 refresh）；refresh 也失效 → 清 token + 回登录页并带 `?redirect=`；错误统一按 05 §0 `{error:{code,message}}` 解析，`ElMessage` 提示（登录接口用 `skipErrorToast` 交给页面内联）。
+- 布局：左菜单 + 顶栏（角色标签 / 账号 / 退出）+ 主内容区。菜单按角色过滤：admin/registrar 7 项（工作台·档案·班级·排课·签到·报表·机构设置），teacher 4 项（工作台·我的班级·我的课表·签到）。
+- 路由守卫：未登录 → `/login?redirect=<原地址>`；登录后回原目标；已登录但角色不在 `meta.roles` → 拦到 `/403`，**目标组件不渲染**；已登录访问 `/login` → 回工作台；未知路由 404。
+- 占位页：`/archive` `/classes` `/scheduling` `/attendance` `/reports` `/settings` `/my-classes` `/my-schedule` 全部指向同一个 `PlaceholderView`，路由名与路径已固定。
+- CI 新增 `web` job（Node 20 + pnpm install --frozen-lockfile + `vue-tsc --noEmit` + `vite build`）；后端 `lint` / `test` / `docker-smoke` 三个 job 未动。
+- 验证：`pnpm build`（含类型检查）通过；Playwright + 本机 Edge 跑 25 项行为断言全过（见下）。
+
+**必须跟着改的地方**
+
+1. **pnpm 12 默认不跑依赖的构建脚本**：`web/pnpm-workspace.yaml` 里有 `allowBuilds: esbuild`。删了它 `pnpm install` 直接 `ERR_PNPM_IGNORED_BUILDS`（CI 也红）。后续加任何带 postinstall 的依赖，都要在这里追加放行，否则 CI 挂。
+2. **`pnpm-workspace.yaml` 是 pnpm 12 的配置落点**（`package.json` 里的 `pnpm` 字段已不再被读取）。别把它删成空文件，它是真配置。
+3. **后端没有员工 profile 接口**：05 §1.1 只返回 `role` / `tenant_id`，所以顶栏"当前用户"显示的是**登录手机号 + 角色中文名**（admin→机构管理员 / registrar→教务 / teacher→老师）。若发令部要显示真实姓名，得先加 `GET /me/profile`（本步禁止新增接口，没做）。
+4. **菜单口径**：admin 与 registrar **菜单完全相同（7 项）**。0.2 矩阵里两者的差别在"员工账号分配 / 敏感操作留痕"，本步没有对应页面。若 4.x 要区分，请在新指令里明确列菜单，不要默认沿用。
+5. **登录成功跳转**：带 `?redirect=` 时回原页，否则一律 `/dashboard`（三种角色共用工作台）。**role 目前不改变首页**，指令里"按 role 跳转首页"按此口径落地。
+6. **`?redirect=` 只接受站内相对路径**（`/` 开头且非 `//`），否则回落 `/dashboard`；防开放重定向。
+7. **`VITE_API_BASE_URL`**：`.env.development` = `http://localhost:8000`；`.env.production` **留空 = 同源**，部署时需 Nginx 反代 `/auth`、`/students` 等路径，这条要在部署步骤确认，别到时候 404。
+
+**给发令部的指令**
+
+- 4.2 起加页面：在 `web/src/views/` 建组件 + 在 `web/src/router/index.ts` 注册路由，**权限只写在 `meta.roles`**，守卫已统一收口，不要在页面里另写角色判断。
+- 所有请求走 `web/src/api/http.ts` 的 `http` 实例，**禁止 new axios**（否则没有 Bearer、没有 401 续期、没有统一报错解析）。
+- 角色中文名集中在 `web/src/types/auth.ts` 的 `ROLE_LABELS`；新增角色要同步改这里、`STAFF_ROLES`、`router/index.ts` 的 roles 常量。
+- 菜单只改 `web/src/config/menu.ts`，不要在布局组件里散写。
+- 前端锁 pnpm 12（`packageManager`）；CI 的 `pnpm/action-setup` 会读它，**不要在 workflow 里另写 pnpm version**，否则版本冲突。
+- 本步**未做按钮级权限**（菜单级 + 路由级已收口）。4.2 起页面内"新建/编辑/删除"按钮是否按角色隐藏，请在新指令里定口径。
+- 已知限制（如实上报）：Element Plus 全量引入，主 chunk 1.27 MB（gzip 414 kB），构建有 chunk 体积警告。本步禁止引入额外依赖，没做按需引入；要优化请在后续步骤单开一条。
 
 ### [3.5] 2026-10-30 16:20 · commit `a22d03c`（已推送，CI 41023535871 全绿：lint/test/docker-smoke）
 
@@ -274,3 +308,4 @@ DELETE /tenant-holidays/{id}                                             → 204
 | 3.3 | `d96c79d` | `find_conflicts` 三维度 + 迁移 `0009` EXCLUDE + `create_lesson` + `validate` 接口；生成响应加 `skipped_conflicts` |
 | 3.4 | `5af6cc5` | `POST /lessons`（复用 `create_lesson` 补引用校验）、`PATCH /lessons/{id}`（moved/cancelled，`LESSON_ALREADY_DONE` 守门 + `LESSON_OVERLAP`）、`POST /makeup-lessons`（纯排期写 attendance makeup 行，不碰流水） |
 | 3.5 | `a22d03c` | 签到扣课（同事务 + 逐学生 SAVEPOINT + 唯一键幂等 + makeup 原地转正）；`GET attendance`；`org_config` 规则读写 + `updated_by/updated_at`（迁移 `0010`）；修对账脚本孤儿包误报 |
+| 4.1 | `605a218` | `web/` 管理端骨架：登录、Pinia 登录态、Axios（Bearer + 401 单航班续期）、角色菜单、路由守卫（redirect 回跳 / 越权 403）、占位页；CI 加 `web` job。零后端改动 |
