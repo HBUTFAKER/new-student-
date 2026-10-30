@@ -8,11 +8,35 @@
 > - 发令部：读 §0 最新一块 + §4 已锁定约定，再出指令。别只看 01~07 原文，那是基线，不是现状。
 > - 开发：动表结构、动既有测试、动已上线接口前，先读 §1 与 §2。
 
-当前状态：**阶段 3 收官（3.5 完成）**，Alembic head = `0011_subscribe_auth_quota`，全库 26 张表（业务层 19 张）。**阶段 4 收官**：4.1 前端骨架 + 4.2 档案与班级管理页 + 4.3 排课日历与拖拽调课 + 4.4 上（三个只读报表接口）+ 4.4 下（报表前端页）全部完成。4.4 上是阶段 4 唯一动后端的部分：零迁移、零新表。**阶段 5 进行中**：5.1 家长端小程序骨架 + 登录 + 请求封装、5.2 邀请码绑定 + 多孩子切换 + 管理端发码入口、5.3 课表/余额/扣课明细（三个 `/me` 只读接口 + 小程序三页 + 首页改工作台）、5.4 订阅授权收集（迁移 `0011` 给 `subscribe_auth` 加 `available_count` / `updated_at` + 两个 `/me` 接口 + 小程序自动授权与「通知设置」页）均已完成。5.3 是阶段 5 首次动后端（零迁移）；5.4 是阶段 5 第二个动后端的步骤（**加列不加表**，表数仍 26）。
+当前状态：**阶段 3 收官（3.5 完成）**，Alembic head = `0011_subscribe_auth_quota`，全库 26 张表（业务层 19 张）。**阶段 4 收官**：4.1 前端骨架 + 4.2 档案与班级管理页 + 4.3 排课日历与拖拽调课 + 4.4 上（三个只读报表接口）+ 4.4 下（报表前端页）全部完成。4.4 上是阶段 4 唯一动后端的部分：零迁移、零新表。**阶段 5 进行中**：5.1 家长端小程序骨架 + 登录 + 请求封装、5.2 邀请码绑定 + 多孩子切换 + 管理端发码入口、5.3 课表/余额/扣课明细（三个 `/me` 只读接口 + 小程序三页 + 首页改工作台）、5.4 订阅授权收集（迁移 `0011` 给 `subscribe_auth` 加 `available_count` / `updated_at` + 两个 `/me` 接口 + 小程序自动授权与「通知设置」页）均已完成。5.3 是阶段 5 首次动后端（零迁移）；5.4 是阶段 5 第二个动后端的步骤（**加列不加表**，表数仍 26）。另有 **5.4 补丁** `9a6ebd9`：修单次加课并发占位死锁（`40P01` → 409，越界改了排课写路径，可单独 revert）。
 
 ---
 
 ## §0 交接区（最新在最上面）
+
+### [5.4 补丁] 2026-10-31 02:32 · commit `9a6ebd9`（**越界**：动了排课写路径，单独成 commit，可单独 revert）
+
+**为什么越界**：033 指令没让改排课。但 CI `41101795266` 和 `41105035742` 两次都**只**挂在 `tests/test_conflict.py::test_concurrent_insert_exactly_one_wins`，本地同一用例**必现（3/3）**——不是偶发 flake：两个事务同时通过预检、再插同一时段，EXCLUDE 约束走 Postgres speculative insertion，双方互等 token 撞成 `40P01 deadlock`；而 `create_lesson` 只 `except IntegrityError`，死锁抛的是**裸 `DBAPIError`**，于是 500 顶掉了本该是 409 的冲突。不修这条，CI 永远绿不了，任何一步都收不了尾。**这是真实生产缺陷**（两个教务同时给同一教室加同一时段 → 一个 500），不只是测试问题。
+
+**改了什么**（只动 `app/services/lesson.py`）
+
+1. `except` 从 `IntegrityError` 放宽到 `DBAPIError` —— **这是根因**，死锁根本不会被原来那个 except 命中。
+2. INSERT 包进 SAVEPOINT（`async with db.begin_nested()`），按 sqlstate 分流：`23P01` → 409 `SCHEDULE_CONFLICT`；`40P01` / `40001` → 回滚到保存点、重建对象重试，最多 3 次（赢家提交后再插必然撞 `23P01`，稳定落成 409）；其余照旧抛出。
+3. Lesson 对象建在 savepoint **内部**，回滚后不会残留成待插入对象。
+4. 重试后那一发 `23P01` 会补查一次 `find_conflicts`，把 `detail.conflicts` 填回去（管理端 `ConflictDialog` 靠它）；补查自己失败就退回不带明细的 409，不拿 500 顶掉 409。
+
+**验证**：并发用例连跑 **10 次全过**（修复前 3/3 必挂）；干净库全量 **281 passed**；`ruff check` / `format --check` 通过。
+
+**必须跟着改的地方**
+
+1. 并发窗口里 409 的 `detail.conflicts` **可能是空数组**（重试成功后才查，或补查失败）。管理端弹窗要能显示「无冲突明细」，别假定数组非空。
+2. 这套重试只覆盖**单次加课**。`generate_lessons` 里 `add_all` + `flush` 那条批量路径**没动**——它可能撞同样的 `40P01`，但那是单请求内部多个候选时段互相冲突，不涉及两个请求抢同一时段，优先级低。要一起修请另开一步。
+
+**给发令部的指令**
+
+- 若认为这个补丁不该塞进 5.4，`git revert 9a6ebd9` 即可，不牵连 5.4 的任何文件。但不修的话，`test_concurrent_insert_exactly_one_wins` 会持续以 ~30% 概率把 `test` job 打红（本地实测必现），后续每一步都得靠重跑 CI 碰运气。
+- 之前 08 里「建议加 savepoint 重试」那条提议**已按此实现**，可以销账。
+- 需要在 06/05 的排课错误码说明里补一句：并发占位最终对外仍然是 409 `SCHEDULE_CONFLICT`，前端无需区分「预检命中」和「插入时撞上」。
 
 ### [5.4] 2026-10-31 02:45 · commit `ea4070e`（后端）+ `8692979`（小程序），均已推送；CI `41101795266` 重跑后四 job 全绿
 
@@ -68,7 +92,7 @@
 - 迁移实跑：`alembic upgrade head` 到 `0011_subscribe_auth_quota`，`subscribe_auth` 的列类型 / 默认值逐个核过（`available_count` int NOT NULL default 0、`updated_at` timestamptz 可空）。
 - 静态校验（本机无微信开发者工具）：8 个页面四件套齐全、全部 js `node --check`、全部 json 可解析、WXML 标签栈闭合。
 - `web/` 一行未动（本步不涉及管理端）。
-- CI `41101795266`（docs commit `e47a246`）：`lint` / `web` / `docker-smoke` 绿；`test` 首轮 `1 failed, 280 passed` —— 唯一失败是**既存并发死锁 flake**（`tests/test_conflict.py::test_concurrent_insert_exactly_one_wins` 在 EXCLUDE 约束的并发插入里拿到 `40P01 deadlock` 而不是 `23P01`，与 5.2 的 `41093190247` 同一根因，本步未碰排课写路径），重跑（attempt 2）**四 job 全绿**。**这个 flake 至今没修**：一次真实并发占位可能以 `40P01` 冒成 500 而不是 409，建议单开一步给 `create_lesson` 加 savepoint + 重试（08 §0 已提过，仍未获指令）。
+- CI `41101795266`（docs commit `e47a246`）：`lint` / `web` / `docker-smoke` 绿；`test` 首轮 `1 failed, 280 passed` —— 唯一失败是**既存并发死锁 flake**（`tests/test_conflict.py::test_concurrent_insert_exactly_one_wins` 在 EXCLUDE 约束的并发插入里拿到 `40P01 deadlock` 而不是 `23P01`，与 5.2 的 `41093190247` 同一根因，本步未碰排课写路径），重跑（attempt 2）**四 job 全绿**。该死锁已在 `9a6ebd9` 修掉（见上面 [5.4 补丁] 块）；`e7b2261`（本次 docs 提交）又挂了一次同一个用例，才动的手。
 
 ### [5.3] 2026-10-31 02:20 · commit `c20eea0`（已推送，CI `41097038041` 四 job 全绿）
 
@@ -746,3 +770,4 @@ POST /me/subscribe-auths
 | 5.2 | `f43e593` | 小程序绑定页（输码 / 粘贴 / 扫一扫 + 错误码分流引导）+ 选择孩子页 + 登录三分支分流 + 首页「切到」原地重签；`utils/session.js` 纯函数（`mergeSession` 保 role、扫码取码降级）配 22 项 node:test；web 学生页「邀请码」弹窗（24/72/168h、大字展示、过期置灰）。冒烟 54 项、Playwright 30 项。零后端改动、零迁移 |
 | 5.3 | `c20eea0` | 家长端只读三件套：`GET /me/schedule`（31 天窗口、`cancelled` 不返回、`makeup` 由考勤座反推）、`/me/balance`（复用 ledger 的 `total_balance` / `student_packages`，只下有效包）、`/me/ledger`（复用 `ledger_query`，默认 20 上限 100）；统一 `child_session` 闸（角色 → 激活孩子 → 实时绑定复核 → 租户上下文）；小程序首页改工作台 + 课表/余额/明细三页 + `utils/portal.js` 纯逻辑。零迁移、零新表、零写路径改动 |
 | 5.4 | `ea4070e` | 订阅授权收集（只收不发）：迁移 `0011` 给 `subscribe_auth` 加 `available_count`（accept 累加、reject/ban 不清零）+ `updated_at`；`GET /me/subscribe-templates`（后端配置下发、小程序不硬编码）、`POST /me/subscribe-auths`（`wechat_user_id` 只认 token、未知模板整批 422、`ON CONFLICT` 原子 upsert）；新闸门 `parent_tenant_session`（机构级，不要求选孩子）；小程序 `utils/subscribe.js` 纯逻辑 18 项 + 首页自动收集 + 「通知设置」页手动重授权。加列不加表，表数仍 26 |
+| 5.4 补丁 | `9a6ebd9` | **越界改排课写路径**：`create_lesson` 的 INSERT 包 SAVEPOINT + 按 sqlstate 分流，`except` 从 `IntegrityError` 放宽到 `DBAPIError`（死锁原来是裸 `DBAPIError`，500 顶掉 409），`40P01/40001` 重试 ≤3 次后稳定落 `23P01`→409；重试路径补查 `find_conflicts` 保住 `detail.conflicts`。修 CI 必现红 |
