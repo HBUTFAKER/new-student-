@@ -3,6 +3,8 @@ import type {
   Binding,
   Classroom,
   ClassroomPayload,
+  InviteCode,
+  InviteCodeList,
   Paged,
   Parent,
   ParentPayload,
@@ -84,4 +86,16 @@ export function createBinding(payload: {
 
 export function deleteBinding(id: string): Promise<void> {
   return http.delete(`/bindings/${id}`).then(() => undefined)
+}
+
+/** ---- 邀请码（05 §2.4） ---- */
+export function createInviteCode(payload: {
+  student_id: string
+  expires_in_hours?: number
+}): Promise<InviteCode> {
+  return http.post<InviteCode>('/invite-codes', payload).then((r) => r.data)
+}
+
+export function listInviteCodes(studentId: string): Promise<InviteCodeList> {
+  return http.get<InviteCodeList>(`/students/${studentId}/invite-codes`).then((r) => r.data)
 }

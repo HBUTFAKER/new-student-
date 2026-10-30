@@ -6,6 +6,7 @@ import type { FormInstance, FormRules } from 'element-plus'
 import { createStudent, listStudents, updateStudent } from '@/api/archive'
 import { ApiError } from '@/api/http'
 import ImportDialog from '@/components/ImportDialog.vue'
+import InviteCodeDialog from '@/components/InviteCodeDialog.vue'
 import { usePagedList } from '@/composables/usePagedList'
 import {
   GRADE_OPTIONS,
@@ -216,6 +217,16 @@ async function handleExport(): Promise<void> {
 
 const importVisible = ref(false)
 
+// ---------------------------------------------------------------- 邀请码
+
+const inviteVisible = ref(false)
+const inviteStudent = ref<Student | null>(null)
+
+function openInvite(row: Student): void {
+  inviteStudent.value = row
+  inviteVisible.value = true
+}
+
 async function submitImportRow(row: Record<string, string>): Promise<void> {
   const name = (row['姓名'] ?? '').trim()
   if (!name) throw new ApiError('姓名为空', 'ROW_INVALID', 422)
@@ -302,9 +313,10 @@ onMounted(() => {
         <el-table-column label="创建时间" width="150">
           <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="150" fixed="right">
+        <el-table-column label="操作" width="230" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
+            <el-button link type="primary" @click="openInvite(row)">邀请码</el-button>
             <el-button
               v-if="row.status !== 'archived'"
               link
@@ -379,6 +391,8 @@ onMounted(() => {
       :submit-row="submitImportRow"
       @finished="handleImported"
     />
+
+    <InviteCodeDialog v-model="inviteVisible" :student="inviteStudent" />
   </div>
 </template>
 

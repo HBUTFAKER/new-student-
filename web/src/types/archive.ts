@@ -26,6 +26,21 @@ export interface StudentPayload {
   status?: StudentStatus
 }
 
+/** 邀请码（05 §2.4）：一次性、默认 24h、同一学生可并存多个 */
+export type InviteCodeStatus = 'valid' | 'used' | 'expired'
+
+export interface InviteCode {
+  code: string
+  student_id: string
+  status: InviteCodeStatus
+  expires_at: string
+  used_by: string | null
+}
+
+export interface InviteCodeList {
+  items: InviteCode[]
+}
+
 export interface Parent {
   id: string
   name: string
@@ -80,6 +95,12 @@ export const STUDENT_STATUS_LABELS: Record<StudentStatus, string> = {
   active: '在读',
   suspended: '停用',
   archived: '已归档',
+}
+
+export const INVITE_STATUS_LABELS: Record<InviteCodeStatus, string> = {
+  valid: '可用',
+  used: '已使用',
+  expired: '已过期',
 }
 
 export const TEACHER_STATUS_LABELS: Record<TeacherStatus, string> = {

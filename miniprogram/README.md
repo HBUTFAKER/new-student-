@@ -2,7 +2,7 @@
 
 原生微信小程序 + 原生 JS，**零 npm 依赖、零构建链**。用微信开发者工具「导入项目」直接选这个目录（`miniprogram/`）就能跑。
 
-对应 `docs/phase0/030-instruction`（5.1）：只做工程骨架、登录、请求封装、首页占位。绑定邀请码是 5.2，课表/余额/扣课明细是 5.3。
+对应 `docs/phase0/031-instruction`（5.2）：骨架 + 登录 + 绑定邀请码 + 多孩子切换。课表/余额/扣课明细是 5.3。
 
 ## 目录
 
@@ -15,14 +15,17 @@ miniprogram/
     storage.js               登录态读写（只存 token 与身份上下文，不存 openid/unionid）
     request-core.js          请求管线纯逻辑：Bearer 注入、401 单航班续期、错误归一（可在 Node 里单测）
     request.js               wx.request 适配层，把上面那层接到小程序
-    auth.js                  wx.login → /auth/wechat-login → 校验 /me/students
+    session.js               会话合并（保留 role / 回填 bound_students）+ 邀请码归一化 + 错误码映射
+    auth.js                  login / bindChild / switchStudent，三个都会重签 token
   pages/
-    login/                   首屏；已有 token 直接 reLaunch 到首页
-    home/                    /me/students 孩子列表 + 下拉刷新 + 空/错/正常三态
-    bind-placeholder/        「请向机构索取邀请码」占位（5.2 才做真绑定）
+    login/                   首屏；已有 token 直接 reLaunch；登录后按 needBind / needSwitch 分流
+    home/                    /me/students 孩子列表 + 下拉刷新 + 行内「切到」另一个孩子
+    bind/                    输码 / 粘剪贴板 / 扫码 → POST /me/bindings
+    switch-student/          多孩子（跨机构）选择，POST /me/active-student
   tests/
     request-core.test.js     node:test 单测（15 项）
-    live-smoke.js            真后端联调冒烟（手动跑，26 项）
+    session.test.js          node:test 单测（22 项）
+    live-smoke.js            真后端联调冒烟（手动跑，54 项）
 ```
 
 ## 本地联调
@@ -42,14 +45,17 @@ miniprogram/
 ## 测试
 
 ```bash
-# 纯逻辑单测（不依赖后端，CI 也能跑，但 5.1 按要求没往 CI 里加 job）
+# 纯逻辑单测（不依赖后端；031 依旧按要求没往 CI 里加小程序 job）
 node --test miniprogram/tests/request-core.test.js
+node --test miniprogram/tests/session.test.js
 
-# 真后端冒烟（要先起后端，且库里得有一个已绑定的家长）
+# 真后端冒烟（要先起后端；脚本会自己建学生、自己发码绑定，不依赖特定种子数据）
 MP_API_BASE=http://127.0.0.1:8000 node miniprogram/tests/live-smoke.js
 ```
 
-`live-smoke.js` 默认用 `live_smoke_openid|live_smoke_unionid` 当已绑定账号、`live_smoke_new_openid|...` 当无绑定账号，可用 `MP_BOUND_CODE` / `MP_EMPTY_CODE` 覆盖。造绑定关系最省事的办法是走 `POST /me/bindings`（教务发邀请码）。
+`live-smoke.js` 自带前置造数：学生不够就用教务接口建，起始身份没绑定就现场发码绑一个。默认教务账号 `13000000001 / demo123456`（可用 `MP_ADMIN_PHONE` / `MP_ADMIN_PASSWORD` 覆盖），已绑定账号 `live_smoke_openid|live_smoke_unionid`（`MP_BOUND_CODE`）。
+
+「跨机构切换」那条是软断言：库里只有单一机构时会打印 `skip`，不会假失败。要硬验就得造第二个租户 + 学生。
 
 ## 要人工确认的事（自动化覆盖不到）
 

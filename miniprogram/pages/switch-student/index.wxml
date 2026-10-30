@@ -1,0 +1,41 @@
+<view class="page switch">
+  <view class="switch__head">
+    <view class="switch__title">选择孩子</view>
+    <view class="muted switch__desc">你绑定了多个孩子，选一个查看。不同机构的孩子可在这里来回切。</view>
+  </view>
+
+  <view wx:if="{{error}}" class="error-box switch__error">{{error}}</view>
+
+  <view wx:if="{{loading && students.length === 0}}" class="card switch__skeleton">
+    <view class="switch__bar"></view>
+    <view class="switch__bar switch__bar--short"></view>
+  </view>
+
+  <view wx:elif="{{students.length === 0}}" class="card switch__empty">
+    <view class="switch__empty-title">还没有绑定孩子</view>
+    <view class="muted switch__empty-tip">向机构索取邀请码，绑定后就能在这里切换。</view>
+    <button class="btn switch__bind" bindtap="goBind">去绑定</button>
+  </view>
+
+  <view wx:else class="switch__list">
+    <view
+      class="card switch__item {{item.active ? 'switch__item--active' : ''}}"
+      wx:for="{{students}}"
+      wx:key="student_id"
+      data-id="{{item.student_id}}"
+      data-active="{{item.active}}"
+      bindtap="onPick"
+    >
+      <view class="switch__avatar">{{item.initial}}</view>
+      <view class="switch__main">
+        <view class="switch__name-row">
+          <text class="switch__name">{{item.student_name}}</text>
+          <text wx:if="{{item.active}}" class="switch__tag">当前</text>
+        </view>
+        <view class="muted switch__org">{{item.tenant_name}}</view>
+      </view>
+      <view wx:if="{{switchingId === item.student_id}}" class="switch__hint">切换中…</view>
+      <view wx:elif="{{!item.active}}" class="switch__arrow">›</view>
+    </view>
+  </view>
+</view>

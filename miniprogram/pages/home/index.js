@@ -2,6 +2,8 @@
 
 var http = require('../../utils/request')
 var storage = require('../../utils/storage')
+var auth = require('../../utils/auth')
+var session = require('../../utils/session')
 
 function twoDigits(value) {
   return value < 10 ? '0' + value : '' + value
@@ -21,6 +23,7 @@ Page({
     students: [],
     updatedAt: '',
     role: '',
+    switchingId: '',
   },
 
   onLoad: function () {
@@ -86,7 +89,30 @@ Page({
   },
 
   goBind: function () {
-    wx.navigateTo({ url: '/pages/bind-placeholder/index' })
+    wx.navigateTo({ url: '/pages/bind/index' })
+  },
+
+  goSwitch: function () {
+    wx.navigateTo({ url: '/pages/switch-student/index' })
+  },
+
+  /** 直接在当前页切到某个孩子：重签 JWT 后原地刷新列表，不用 reLaunch */
+  onSwitch: function (event) {
+    var that = this
+    var id = event.currentTarget.dataset.id
+    if (!id || this.data.switchingId) return
+
+    this.setData({ switchingId: id, error: '' })
+
+    auth
+      .switchStudent(id)
+      .then(function () {
+        that.setData({ switchingId: '' })
+        return that.load()
+      })
+      .catch(function (error) {
+        that.setData({ switchingId: '', error: session.describeSwitchError(error) })
+      })
   },
 
   onLogout: function () {

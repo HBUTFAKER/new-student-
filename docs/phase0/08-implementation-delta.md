@@ -8,11 +8,52 @@
 > - 发令部：读 §0 最新一块 + §4 已锁定约定，再出指令。别只看 01~07 原文，那是基线，不是现状。
 > - 开发：动表结构、动既有测试、动已上线接口前，先读 §1 与 §2。
 
-当前状态：**阶段 3 收官（3.5 完成）**，Alembic head = `0010_org_config_audit`，全库 26 张表（业务层 19 张）。**阶段 4 收官**：4.1 前端骨架 + 4.2 档案与班级管理页 + 4.3 排课日历与拖拽调课 + 4.4 上（三个只读报表接口）+ 4.4 下（报表前端页）全部完成。4.4 上是阶段 4 唯一动后端的部分：零迁移、零新表。**阶段 5 进行中**：5.1 家长端小程序骨架 + 登录 + 请求封装已完成（新目录 `miniprogram/`，后端一行未动）。
+当前状态：**阶段 3 收官（3.5 完成）**，Alembic head = `0010_org_config_audit`，全库 26 张表（业务层 19 张）。**阶段 4 收官**：4.1 前端骨架 + 4.2 档案与班级管理页 + 4.3 排课日历与拖拽调课 + 4.4 上（三个只读报表接口）+ 4.4 下（报表前端页）全部完成。4.4 上是阶段 4 唯一动后端的部分：零迁移、零新表。**阶段 5 进行中**：5.1 家长端小程序骨架 + 登录 + 请求封装已完成（新目录 `miniprogram/`，后端一行未动）；5.2 邀请码绑定 + 多孩子切换 + 管理端发码入口已完成（仍然零后端改动、零迁移）。
 
 ---
 
 ## §0 交接区（最新在最上面）
+
+### [5.2] 2026-10-31 01:15 · commit `待填`（已推送，CI `待填`）
+
+**我改了什么**
+
+- **小程序绑定页** `pages/bind/`（`bind-placeholder` 已删除）：8 位码输入 + 从剪贴板粘贴（`wx.getClipboardData`）+ 扫一扫（`wx.scanCode`）。成功后 `POST /me/bindings` → **整体覆盖 storage 的 auth**（role 保留、`bound_students` 回填实时条数）→ `resetSession()` → `reLaunch` 首页；失败内联显示原因 + 按错误码给不同动作按钮（重试 / 去切换孩子 / 重新登录）。
+- **小程序选择孩子页** `pages/switch-student/`：`GET /me/students` 全量（跨机构也列，机构名一并显示），当前激活项高亮；点选 → `POST /me/active-student` → 覆盖 auth → `resetSession()` → `reLaunch` 首页。
+- **登录分流修正**（030 指出的缺口）：`0 个绑定` → 绑定页；`≥1 个绑定且 tenant_id 为空` → **选择孩子页**；其余 → 首页。判定用 `/me/students` 的实时条数，不用登录响应的 `bound_students` 快照。
+- **首页每行「切到」入口**：非当前孩子才显示，点了原地重签 JWT + 刷新列表（不 `reLaunch`），多机构来回切不用退到选择页。
+- **`utils/session.js`（纯函数，可单测）**：`mergeSession`（保留 role / 回填 bound_students）、`normalizeInviteCode`、`extractInviteCode`、`describeBindError`、`describeSwitchError`。
+- **web 学生页「邀请码」**：`components/InviteCodeDialog.vue` —— 该生邀请码列表（码 / 状态 / 有效期至 / 使用人摘要 / 复制）+ 生成新码（24h 默认，可选 72h / 168h）+ 生成后大字展示 + 一键复制。过期/已用的行整体置灰、复制按钮消失。操作列宽度 150 → 230。
+- 测试：小程序 `session.test.js` 22 项、`live-smoke.js` 扩到 **54 项**；web Playwright **30 项**（真后端 + 本机 Edge）。
+
+**必须跟着改的地方**
+
+1. **后端把「码不存在 / 已用过 / 已过期」统一归成 404 `INVITE_CODE_INVALID`**，前端区分不了。031 指令写的是「404/409/422 按后端实际错误码映射」，实际只有这一个码，所以文案是三者合一句：「邀请码无效、已被使用或已过期，请向机构重新索取」。要细分就得后端拆码。
+2. **`BINDING_EXISTS`（409）的引导是死胡同**：文案让用户「去切换孩子」，但选择孩子页只能切、不能解绑，而解绑只有 web 端 `DELETE /bindings/{id}`。家长真遇到「这个孩子已在我名下」时，小程序里没有出口。要么后端/小程序补解绑，要么改文案让家长找教务。
+3. **`login_wechat` 只在「恰好 1 个有效绑定」时给 `tenant_id`。** 所以 `bound_students >= 2` 且 `tenant_id` 为空的家长登录后进选择孩子页 —— 这是本步修掉的 030 缺口。注意绑第二个码时后端会重签成**第二个孩子**的租户上下文。
+4. **切换孩子的错误码不是 404**：403 `OUT_OF_BINDING_SET`（不在绑定集合）、403 `OUT_OF_SCOPE`（同码还表示「不是家长」和「孩子已归档」）。前端只能给一句通用提示，别指望精确到原因。
+5. **两个重签接口的响应都没有 `role` 和 `bound_students`**（`MeBindingResponse` / `ActiveStudentResponse`）。`Object.assign(storage, response)` 会把 `role` 抹成 `undefined`，必须走 `mergeSession`。这是本步最容易踩的坑。
+6. **绑定/切换成功后必须 `resetSession()`**，否则 5.1 里那个「清场只回调一次」的 flag 会挡住后续 401 续期。
+7. **扫码结果不一定是纯码**（可能是 URL 或带说明的文本）。`extractInviteCode` 的降级顺序：纯码 → 带连字符的 `XXXX-XXXX` → 孤立的 8 位串 → 认不出就提示手动输入。
+8. **`BINDING_EXISTS` 时码不会被消耗**（后端整个 `db.begin()` 回滚），教务那个码仍然可用给别人。别在外面把码标记成已用。
+9. **web 不生成二维码图片**（031 禁令），只出文本码 + 复制。家长端扫码走的是 `wx.scanCode`，扫的是文本二维码。
+10. **`used_by` 是 `wechat_user.id`**，教务看不懂，只显示前 8 位（指令要求「摘要」）；要显示「爸爸/妈妈」得后端补 relation，一期没有。
+11. **学生页操作列变宽到 230**（多了「邀请码」按钮）。4.2 的 e2e 若断言列宽/按钮数会挂。
+
+**给发令部的指令**
+
+- 5.3 做课表/余额/扣课明细时，切换孩子入口已经就位：小程序端用 `utils/auth.js#switchStudent`，别再写一遍重签逻辑。
+- 解绑只存在于 web 端；小程序端没有入口。要不要开，属于权限矩阵的事，建议先定「家长能否自助解绑」。
+- 多孩子在**同一机构**时，切孩子后机构名不变是正常的，别把它当断言（`live-smoke.js` 里跨机构那条是软断言，单机构环境打印 `skip`）。
+- 邀请码有效期后端允许 1–720 小时，前端只暴露 24/72/168 三档（按 031 指令）。要放开就改 `InviteCodeDialog.vue` 的 `HOUR_OPTIONS`。
+
+**验证（本地实跑）**
+
+- 小程序 `node --test`：`request-core` 15 项 + `session` 22 项，**37 项全过**。
+- 真后端冒烟 **54 项全过**：新身份 `needBind=true` → 无效码 `INVITE_CODE_INVALID` + 文案 → 绑第一个（`active_student_id` 指向它、`tenant_id` 有值、**`role` 仍是 parent**、`bound_students=1`）→ 同码重绑 `BINDING_EXISTS` + 引导动作 `switch` → 绑第二个（`bound_students=2`）→ 切回第一个（`active_student_id` / `tenant_id` 同步、`bound_students` 不变）→ `/me/students` 的 `active` 标记转移 → 切到未绑定孩子报 `OUT_OF_BINDING_SET` 且原激活态没被改坏。脚本自带前置造数（学生不够就建、身份没绑定就发码），换库可直接跑。
+- web Playwright **30 项全过**（真后端 + Edge）：学生行有「邀请码」、弹窗标题带姓名、默认 24 小时、过期码显示「已过期」且整行置灰且无复制按钮、有效码「可用」且有复制、生成的码形状 `AB12-CD34`、7 天档的到期时间落在 6.5–7.5 天、家长 API 兑换后刷新变「已使用」+ 使用人摘要 + 复制按钮消失、重开弹窗不残留上次的大字、老师调发码接口 403 `OUT_OF_SCOPE`、老师菜单无「学生档案」、老师直访学生页被拦、全程 0 条控制台报错。
+- `pnpm typecheck`（`vue-tsc --noEmit`）与 `pnpm build` 均通过。
+- **一次偶发记录**：首轮在新库上跑冒烟时，绑定第二个孩子报 `INVITE_CODE_INVALID`，但该码在库里 `used_at is null` 且未过期。随后清空业务表重建、连跑 4 次均未复现，未定位到根因。若再出现，优先查 `auth_invite_code` 与 `set_config('app.tenant_id')` 的交互。
 
 ### [5.1] 2026-10-31 00:52 · commit `ee406c7`（已推送，CI 41089429270 四 job 全绿）
 

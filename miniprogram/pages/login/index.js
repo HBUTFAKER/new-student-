@@ -26,9 +26,14 @@ Page({
     auth
       .login()
       .then(function (result) {
-        wx.reLaunch({
-          url: result.needBind ? '/pages/bind-placeholder/index' : '/pages/home/index',
-        })
+        var url = '/pages/home/index'
+        if (result.needBind) {
+          url = '/pages/bind/index'
+        } else if (result.needSwitch) {
+          // 绑了多个孩子但没激活（多机构），先去选一个，别再拿"索取邀请码"误导人
+          url = '/pages/switch-student/index'
+        }
+        wx.reLaunch({ url: url })
       })
       .catch(function (error) {
         that.setData({

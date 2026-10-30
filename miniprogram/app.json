@@ -2,7 +2,8 @@
   "pages": [
     "pages/login/index",
     "pages/home/index",
-    "pages/bind-placeholder/index"
+    "pages/bind/index",
+    "pages/switch-student/index"
   ],
   "window": {
     "navigationBarBackgroundColor": "#2f6fed",

@@ -1,0 +1,38 @@
+<view class="page bind">
+  <view class="bind__head">
+    <view class="bind__title">绑定孩子</view>
+    <view class="muted bind__desc">输入机构发给你的邀请码，或扫一扫邀请码二维码。</view>
+  </view>
+
+  <view class="card">
+    <view class="bind__label">邀请码</view>
+    <input
+      class="bind__input"
+      value="{{code}}"
+      type="text"
+      maxlength="12"
+      placeholder="AB12-CD34"
+      placeholder-class="bind__ph"
+      confirm-type="done"
+      bindinput="onInput"
+      bindconfirm="onSubmit"
+    />
+
+    <view class="bind__row">
+      <button class="btn btn--ghost bind__mini" bindtap="onPaste">从剪贴板粘贴</button>
+      <button class="btn btn--ghost bind__mini" bindtap="onScan">扫一扫</button>
+    </view>
+
+    <button class="btn bind__submit" loading="{{submitting}}" disabled="{{submitting}}" bindtap="onSubmit">
+      {{submitting ? '正在绑定…' : '绑定'}}
+    </button>
+
+    <view wx:if="{{error}}" class="error-box">
+      <text>{{error}}</text>
+      <view wx:if="{{errorAction === 'switch'}}" class="bind__link" bindtap="goSwitch">去切换孩子</view>
+      <view wx:if="{{errorAction === 'login'}}" class="bind__link" bindtap="goLogin">重新登录</view>
+    </view>
+  </view>
+
+  <view class="muted bind__foot">邀请码由机构教务签发，默认 24 小时内有效，用一次即作废。</view>
+</view>
