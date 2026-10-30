@@ -87,6 +87,10 @@ async def _check_tenant(db: AsyncSession) -> dict:
         "mismatches": [],
         "warnings": [],
     }
+    # 3.5 修正：``seen`` 原本在 student 循环里重置，孤儿包判定却用循环外的那一份，
+    # 于是同一机构第二个学生有课时包时，前一个学生的包会被误报成 orphan_purchase。
+    # 签到上线后一个机构必然有多个学生各自买课，必须按租户累积。
+    seen: set = set()
     for student_id in student_ids:
         packages = await student_packages(db, student_id)
         ledger_total = int(totals.get(student_id, 0) or 0)
@@ -112,7 +116,6 @@ async def _check_tenant(db: AsyncSession) -> dict:
                     "actual": recomputed,
                 }
             )
-        seen: set = set()
         for item in packages:
             seen.add(item["purchase_id"])
             expected = int(per_purchase.get(item["purchase_id"], 0) or 0)

@@ -1,8 +1,9 @@
 """Organisation module: staff accounts and per-tenant configuration."""
 
+from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import ForeignKey, Index, String, UniqueConstraint, Uuid, text
+from sqlalchemy import DateTime, ForeignKey, Index, String, UniqueConstraint, Uuid, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -46,3 +47,6 @@ class OrgConfig(UUIDPrimaryKeyMixin, CreatedAtMixin, TenantMixin, Base):
     )
     logo: Mapped[str | None] = mapped_column(String(255), nullable=True)
     notify_template: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # 3.5 最小留痕：谁在什么时候改了配置（完整审计日志是 US-304 后续阶段）。
+    updated_by: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

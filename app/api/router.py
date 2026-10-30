@@ -4,6 +4,7 @@ from fastapi import APIRouter
 
 from app.api.routes import (
     archive,
+    attendance,
     auth,
     course,
     health,
@@ -11,6 +12,7 @@ from app.api.routes import (
     ledger,
     lesson,
     me,
+    org_config,
     platform,
     schedule,
     trade,
@@ -25,6 +27,8 @@ api_router.include_router(course.router)
 api_router.include_router(schedule.router)
 api_router.include_router(holiday.router)
 api_router.include_router(lesson.router)
+api_router.include_router(attendance.router)
+api_router.include_router(org_config.router)
 api_router.include_router(ledger.router)
 api_router.include_router(trade.router)
 api_router.include_router(platform.router)

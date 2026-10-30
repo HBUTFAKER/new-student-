@@ -103,9 +103,18 @@ def test_attendance_unique_key_is_the_idempotency_key() -> None:
 
 
 def test_no_table_has_updated_at() -> None:
-    """The dictionary defines no updated_at column; nothing may add one silently."""
+    """The dictionary defines no updated_at column; nothing may add one silently.
+
+    3.5 唯一例外：``org_config`` 的 ``updated_by`` / ``updated_at`` 是 US-217
+    「改配置要留痕」的最小实现（迁移 ``0010_org_config_audit``），0.4 字典里没有
+    这两列。只放行这一张表，别的表再加就红。
+    """
 
     for table_name in ALL_TABLES:
+        if table_name == "org_config":
+            columns = set(Base.metadata.tables[table_name].c.keys())
+            assert {"updated_by", "updated_at"} <= columns
+            continue
         assert "updated_at" not in Base.metadata.tables[table_name].c, table_name
 
 
