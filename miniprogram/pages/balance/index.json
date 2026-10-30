@@ -1,0 +1,6 @@
+{
+  "navigationBarTitleText": "课时余额",
+  "enablePullDownRefresh": true,
+  "backgroundTextStyle": "dark",
+  "usingComponents": {}
+}

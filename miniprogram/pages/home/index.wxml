@@ -1,54 +1,59 @@
 <view class="page home">
   <view class="home__head">
-    <view class="home__title">我的孩子</view>
-    <view class="home__meta muted" wx:if="{{updatedAt}}">更新于 {{updatedAt}} · 下拉可刷新</view>
+    <view class="home__title">家长端</view>
+    <view class="muted home__meta" wx:if="{{student}}">下拉可刷新</view>
   </view>
 
-  <!-- 首次加载：骨架占位，避免白屏 -->
-  <view wx:if="{{loading && students.length === 0}}" class="card home__skeleton">
+  <!-- 首次加载：骨架，避免白屏 -->
+  <view wx:if="{{loading && !student}}" class="card home__skeleton">
     <view class="home__bar"></view>
     <view class="home__bar home__bar--short"></view>
   </view>
 
-  <!-- 加载失败：给明确原因 + 重试，不白屏 -->
+  <!-- 加载失败：明确原因 + 重试 -->
   <view wx:elif="{{error}}" class="card">
     <view class="error-box home__error">{{error}}</view>
-    <button class="btn btn--ghost home__retry" bindtap="onRetry">重新加载</button>
+    <button wx:if="{{errorAction === 'switch'}}" class="btn home__retry" bindtap="goSwitch">
+      重新选择孩子
+    </button>
+    <button wx:else class="btn btn--ghost home__retry" bindtap="onRetry">重新加载</button>
   </view>
 
-  <!-- 空绑定 -->
-  <view wx:elif="{{students.length === 0}}" class="card home__empty">
+  <!-- 没有绑定 -->
+  <view wx:elif="{{!student}}" class="card home__empty">
     <view class="home__empty-title">还没有绑定孩子</view>
-    <view class="muted home__empty-tip">请向机构索取邀请码，绑定后这里会显示孩子信息。</view>
+    <view class="muted home__empty-tip">请向机构索取邀请码，绑定后这里会显示孩子的课表与课时。</view>
     <button class="btn home__retry" bindtap="goBind">去绑定</button>
   </view>
 
-  <!-- 正常列表 -->
   <block wx:else>
-    <view class="home__list">
-      <view class="card student" wx:for="{{students}}" wx:key="student_id">
-        <view class="student__avatar">{{item.initial}}</view>
-      <view class="student__main">
-        <view class="student__name-row">
-          <text class="student__name">{{item.student_name}}</text>
-          <text wx:if="{{item.active}}" class="student__tag">当前</text>
-        </view>
-        <view class="muted student__org">
-          {{item.tenant_name}}<text wx:if="{{item.relation}}"> · {{item.relation}}</text>
+    <!-- 当前孩子：点整张卡进选择孩子页 -->
+    <view class="card child" bindtap="goSwitch">
+      <view class="child__avatar">{{student.initial}}</view>
+      <view class="child__main">
+        <view class="child__name">{{student.student_name}}</view>
+        <view class="muted child__org">
+          {{student.tenant_name}}<text wx:if="{{student.relation}}"> · {{student.relation}}</text>
         </view>
       </view>
-      <view wx:if="{{switchingId === item.student_id}}" class="student__switch student__switch--busy">切换中…</view>
+      <view class="child__action">切换</view>
+    </view>
+
+    <view class="entries">
       <view
-        wx:elif="{{!item.active}}"
-        class="student__switch"
-        data-id="{{item.student_id}}"
-        catchtap="onSwitch"
+        class="card entry"
+        wx:for="{{entries}}"
+        wx:key="key"
+        data-url="{{item.url}}"
+        bindtap="goEntry"
       >
-        切到
+        <view class="entry__main">
+          <view class="entry__title">{{item.title}}</view>
+          <view class="muted entry__desc">{{item.desc}}</view>
+        </view>
+        <view class="entry__arrow">›</view>
       </view>
     </view>
-    </view>
-    <view class="muted home__hint">课表、余额与扣课明细将在后续版本开放。</view>
   </block>
 
   <view class="home__footer">

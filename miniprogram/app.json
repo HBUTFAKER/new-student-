@@ -3,7 +3,10 @@
     "pages/login/index",
     "pages/home/index",
     "pages/bind/index",
-    "pages/switch-student/index"
+    "pages/switch-student/index",
+    "pages/schedule/index",
+    "pages/balance/index",
+    "pages/ledger/index"
   ],
   "window": {
     "navigationBarBackgroundColor": "#2f6fed",

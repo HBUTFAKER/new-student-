@@ -35,68 +35,42 @@
   width: 45%;
 }
 
-.home__list {
-  display: flex;
-  flex-direction: column;
-}
-
-/* 不用 flex gap：安卓 X5 内核老版本不认，卡片会贴在一起 */
-.student {
+/* 当前孩子卡 */
+.child {
   display: flex;
   align-items: center;
   padding: 28rpx;
-  margin-bottom: 20rpx;
 }
 
-.student__avatar {
-  width: 88rpx;
-  height: 88rpx;
-  flex: 0 0 88rpx;
+.child__avatar {
+  width: 96rpx;
+  height: 96rpx;
+  flex: 0 0 96rpx;
   border-radius: 50%;
   background: #e8f0ff;
   color: var(--brand);
-  font-size: 34rpx;
+  font-size: 36rpx;
   font-weight: 600;
-  line-height: 88rpx;
+  line-height: 96rpx;
   text-align: center;
 }
 
-.student__main {
+.child__main {
   flex: 1;
   min-width: 0;
   margin-left: 24rpx;
 }
 
-.student__name-row {
-  display: flex;
-  align-items: center;
+.child__name {
+  font-size: 34rpx;
+  font-weight: 600;
 }
 
-.student__name {
-  font-size: 32rpx;
-  font-weight: 500;
-}
-
-.student__tag {
-  margin-left: 12rpx;
-  padding: 2rpx 12rpx;
-  border-radius: 100rpx;
-  background: #e8f0ff;
-  color: var(--brand);
-  font-size: 20rpx;
-}
-
-.student__org {
+.child__org {
   margin-top: 8rpx;
 }
 
-.student__relation {
-  margin-left: 16rpx;
-  color: var(--text-weak);
-  font-size: 24rpx;
-}
-
-.student__switch {
+.child__action {
   margin-left: 16rpx;
   padding: 10rpx 22rpx;
   border: 1rpx solid var(--brand);
@@ -105,9 +79,38 @@
   font-size: 24rpx;
 }
 
-.student__switch--busy {
-  border-color: transparent;
+/* 三个入口 */
+.entries {
+  margin-top: 24rpx;
+}
+
+/* 不用 flex gap：安卓 X5 老内核不认 */
+.entry {
+  display: flex;
+  align-items: center;
+  padding: 30rpx 28rpx;
+  margin-bottom: 20rpx;
+}
+
+.entry__main {
+  flex: 1;
+  min-width: 0;
+}
+
+.entry__title {
+  font-size: 32rpx;
+  font-weight: 500;
+}
+
+.entry__desc {
+  margin-top: 8rpx;
+}
+
+.entry__arrow {
+  margin-left: 16rpx;
   color: var(--text-weak);
+  font-size: 40rpx;
+  line-height: 1;
 }
 
 .home__error {
@@ -131,11 +134,6 @@
 .home__empty-tip {
   margin-top: 12rpx;
   line-height: 1.6;
-}
-
-.home__hint {
-  margin-top: 8rpx;
-  text-align: center;
 }
 
 .home__footer {

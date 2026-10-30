@@ -1,72 +1,95 @@
 'use strict'
 
+/**
+ * 首页 = 家长端工作台（032）。
+ *
+ * 顶部是当前孩子（点击 → 选择孩子页），下面三张入口卡：本周课表 / 课时余额 / 扣课明细。
+ * 三页的数据都由后端按 token 里的激活孩子返回，这里**不传 student_id**（红线）。
+ */
+
 var http = require('../../utils/request')
 var storage = require('../../utils/storage')
-var auth = require('../../utils/auth')
-var session = require('../../utils/session')
+var portal = require('../../utils/portal')
 
-function twoDigits(value) {
-  return value < 10 ? '0' + value : '' + value
-}
-
-function nowText() {
-  var now = new Date()
-  return (
-    twoDigits(now.getHours()) + ':' + twoDigits(now.getMinutes()) + ':' + twoDigits(now.getSeconds())
-  )
-}
+var ENTRIES = [
+  {
+    key: 'schedule',
+    title: '本周课表',
+    desc: '按天看课次，调课与补课有徽章',
+    url: '/pages/schedule/index',
+  },
+  {
+    key: 'balance',
+    title: '课时余额',
+    desc: '剩余课时与课时包到期日',
+    url: '/pages/balance/index',
+  },
+  {
+    key: 'ledger',
+    title: '扣课明细',
+    desc: '每一次增减课时的流水',
+    url: '/pages/ledger/index',
+  },
+]
 
 Page({
   data: {
     loading: true,
     error: '',
-    students: [],
-    updatedAt: '',
-    role: '',
-    switchingId: '',
-  },
-
-  onLoad: function () {
-    var auth = storage.getAuth() || {}
-    this.setData({ role: auth.role || '' })
+    errorAction: '',
+    student: null,
+    entries: ENTRIES,
   },
 
   onShow: function () {
-    this.load()
+    this.load(true)
   },
 
   onPullDownRefresh: function () {
-    this.load().then(function () {
+    this.load(true).then(function () {
       wx.stopPullDownRefresh()
     })
   },
 
-  /** 并发去重：onShow 与下拉刷新可能同时触发，只留一个在飞 */
   load: function (silent) {
     var that = this
     if (this.pending) return this.pending
-
     if (!silent) this.setData({ loading: true, error: '' })
 
     this.pending = http
       .get('/me/students', { silent: true })
       .then(function (result) {
-        var students = ((result && result.items) || []).map(function (item) {
-          // 头像首字在 JS 里取：WXML 里对字符串做下标取值兼容性不稳
-          return Object.assign({}, item, { initial: (item.student_name || '?').slice(0, 1) })
-        })
+        var students = (result && result.items) || []
+        var active = null
+        var index
+        for (index = 0; index < students.length; index += 1) {
+          if (students[index].active) {
+            active = students[index]
+            break
+          }
+        }
+        // 只有一个孩子时后端也会标 active；万一没标（token 过期），退回第一个
+        if (!active && students.length === 1) active = students[0]
+
         that.setData({
-          students: students,
           loading: false,
           error: '',
-          updatedAt: nowText(),
+          errorAction: '',
+          student: active
+            ? Object.assign({}, active, {
+                initial: (active.student_name || '?').slice(0, 1),
+              })
+            : null,
+          bound: students.length,
         })
         return students
       })
       .catch(function (error) {
+        var described = portal.describePortalError(error)
         that.setData({
           loading: false,
-          error: that.describe(error),
+          error: described.message,
+          errorAction: described.action || '',
         })
         return []
       })
@@ -78,45 +101,29 @@ Page({
     return this.pending
   },
 
-  describe: function (error) {
-    if (!error) return '加载失败，请下拉重试'
-    if (error.status === 403) return '当前账号没有查看孩子信息的权限，请联系机构。'
-    return error.message || '加载失败，请下拉重试'
-  },
-
   onRetry: function () {
     this.load()
-  },
-
-  goBind: function () {
-    wx.navigateTo({ url: '/pages/bind/index' })
   },
 
   goSwitch: function () {
     wx.navigateTo({ url: '/pages/switch-student/index' })
   },
 
-  /** 直接在当前页切到某个孩子：重签 JWT 后原地刷新列表，不用 reLaunch */
-  onSwitch: function (event) {
-    var that = this
-    var id = event.currentTarget.dataset.id
-    if (!id || this.data.switchingId) return
+  goBind: function () {
+    wx.navigateTo({ url: '/pages/bind/index' })
+  },
 
-    this.setData({ switchingId: id, error: '' })
-
-    auth
-      .switchStudent(id)
-      .then(function () {
-        that.setData({ switchingId: '' })
-        return that.load()
-      })
-      .catch(function (error) {
-        that.setData({ switchingId: '', error: session.describeSwitchError(error) })
-      })
+  goEntry: function (event) {
+    var url = event.currentTarget.dataset.url
+    if (!url) return
+    if (!this.data.student) {
+      wx.showToast({ title: '先选择孩子', icon: 'none' })
+      return
+    }
+    wx.navigateTo({ url: url })
   },
 
   onLogout: function () {
-    var that = this
     wx.showModal({
       title: '退出登录',
       content: '退出后需要重新微信登录，确定吗？',

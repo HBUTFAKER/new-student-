@@ -1,0 +1,41 @@
+<view class="page balance">
+  <view wx:if="{{loading}}" class="card balance__skeleton">
+    <view class="balance__bar"></view>
+    <view class="balance__bar balance__bar--short"></view>
+  </view>
+
+  <view wx:elif="{{error}}" class="card">
+    <view class="error-box balance__error">{{error}}</view>
+    <button wx:if="{{errorAction === 'switch'}}" class="btn balance__retry" bindtap="goSwitch">
+      重新选择孩子
+    </button>
+    <button wx:else class="btn btn--ghost balance__retry" bindtap="onRetry">重新加载</button>
+  </view>
+
+  <block wx:else>
+    <view class="card total">
+      <view class="muted total__label">剩余课时</view>
+      <view class="total__value {{balance.negative ? 'total__value--negative' : ''}}">
+        {{balance.text}}
+      </view>
+      <view wx:if="{{balance.hint}}" class="total__hint">{{balance.hint}}</view>
+      <view wx:else class="muted total__unit">课时</view>
+    </view>
+
+    <view class="packages">
+      <view class="packages__title">课时包</view>
+      <view wx:if="{{packages.length === 0}}" class="card packages__empty muted">
+        暂无有效的课时包
+      </view>
+      <view class="card package" wx:for="{{packages}}" wx:key="purchase_id">
+        <view class="package__main">
+          <view class="package__remaining">剩 {{item.remaining}} 课时</view>
+          <view class="muted package__expires {{item.expiring ? 'package__expires--warn' : ''}}">
+            到期 {{item.expiresText}}
+          </view>
+        </view>
+        <view wx:if="{{item.expiring}}" class="package__warn">即将到期</view>
+      </view>
+    </view>
+  </block>
+</view>

@@ -1,0 +1,50 @@
+<view class="page schedule">
+  <!-- 周切换 -->
+  <view class="weekbar card">
+    <view class="weekbar__nav" bindtap="prevWeek">‹</view>
+    <view class="weekbar__center" bindtap="thisWeek">
+      <view class="weekbar__label">{{week.label}}</view>
+      <view class="muted weekbar__range">{{week.start}} ~ {{week.end}}</view>
+    </view>
+    <view class="weekbar__nav" bindtap="nextWeek">›</view>
+  </view>
+
+  <view wx:if="{{loading}}" class="card schedule__skeleton">
+    <view class="schedule__bar"></view>
+    <view class="schedule__bar schedule__bar--short"></view>
+  </view>
+
+  <view wx:elif="{{error}}" class="card">
+    <view class="error-box schedule__error">{{error}}</view>
+    <button wx:if="{{errorAction === 'switch'}}" class="btn schedule__retry" bindtap="goSwitch">
+      重新选择孩子
+    </button>
+    <button wx:else class="btn btn--ghost schedule__retry" bindtap="onRetry">重新加载</button>
+  </view>
+
+  <view wx:elif="{{total === 0}}" class="card schedule__empty">
+    <view class="schedule__empty-title">这一周没有课</view>
+    <view class="muted schedule__empty-tip">换周看看，或下拉刷新。</view>
+  </view>
+
+  <block wx:else>
+    <view class="day" wx:for="{{groups}}" wx:key="key">
+      <view class="day__head">
+        <text class="day__date">{{item.label}}</text>
+        <text class="day__weekday">{{item.weekday}}</text>
+      </view>
+      <view class="card lesson" wx:for="{{item.items}}" wx:for-item="lesson" wx:key="lesson_id">
+        <view class="lesson__time">{{lesson.span}}</view>
+        <view class="lesson__main">
+          <view class="lesson__title-row">
+            <text class="lesson__class">{{lesson.class_name}}</text>
+            <text wx:if="{{lesson.badge}}" class="lesson__badge">{{lesson.badge}}</text>
+          </view>
+          <view class="muted lesson__meta">
+            {{lesson.subject || '课程'}}<text wx:if="{{lesson.teacher_name}}"> · {{lesson.teacher_name}}</text>
+          </view>
+        </view>
+      </view>
+    </view>
+  </block>
+</view>

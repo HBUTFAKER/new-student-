@@ -1,0 +1,39 @@
+<view class="page ledger">
+  <view class="ledger__head">
+    <view class="ledger__title">扣课明细</view>
+    <view class="muted ledger__meta" wx:if="{{total}}">共 {{total}} 条 · 下拉可刷新</view>
+  </view>
+
+  <view wx:if="{{loading}}" class="card ledger__skeleton">
+    <view class="ledger__bar"></view>
+    <view class="ledger__bar ledger__bar--short"></view>
+  </view>
+
+  <view wx:elif="{{error}}" class="card">
+    <view class="error-box ledger__error">{{error}}</view>
+    <button wx:if="{{errorAction === 'switch'}}" class="btn ledger__retry" bindtap="goSwitch">
+      重新选择孩子
+    </button>
+    <button wx:else class="btn btn--ghost ledger__retry" bindtap="onRetry">重新加载</button>
+  </view>
+
+  <view wx:elif="{{items.length === 0}}" class="card ledger__empty">
+    <view class="ledger__empty-title">还没有课时流水</view>
+    <view class="muted ledger__empty-tip">缴费、上课扣课后会在这里留痕。</view>
+  </view>
+
+  <block wx:else>
+    <view class="card row" wx:for="{{items}}" wx:key="key">
+      <view class="row__left">
+        <view class="row__type">{{item.typeLabel}}</view>
+        <view class="muted row__meta">
+          {{item.class_name || '—'}} · {{item.timeText}}
+        </view>
+      </view>
+      <view class="row__delta {{item.minus ? 'row__delta--minus' : ''}}">{{item.deltaText}}</view>
+    </view>
+
+    <view wx:if="{{loadingMore}}" class="muted ledger__more">加载中…</view>
+    <view wx:elif="{{!hasMore}}" class="muted ledger__more">没有更多了</view>
+  </block>
+</view>

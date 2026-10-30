@@ -8,11 +8,55 @@
 > - 发令部：读 §0 最新一块 + §4 已锁定约定，再出指令。别只看 01~07 原文，那是基线，不是现状。
 > - 开发：动表结构、动既有测试、动已上线接口前，先读 §1 与 §2。
 
-当前状态：**阶段 3 收官（3.5 完成）**，Alembic head = `0010_org_config_audit`，全库 26 张表（业务层 19 张）。**阶段 4 收官**：4.1 前端骨架 + 4.2 档案与班级管理页 + 4.3 排课日历与拖拽调课 + 4.4 上（三个只读报表接口）+ 4.4 下（报表前端页）全部完成。4.4 上是阶段 4 唯一动后端的部分：零迁移、零新表。**阶段 5 进行中**：5.1 家长端小程序骨架 + 登录 + 请求封装已完成（新目录 `miniprogram/`，后端一行未动）；5.2 邀请码绑定 + 多孩子切换 + 管理端发码入口已完成（仍然零后端改动、零迁移）。
+当前状态：**阶段 3 收官（3.5 完成）**，Alembic head = `0010_org_config_audit`，全库 26 张表（业务层 19 张）。**阶段 4 收官**：4.1 前端骨架 + 4.2 档案与班级管理页 + 4.3 排课日历与拖拽调课 + 4.4 上（三个只读报表接口）+ 4.4 下（报表前端页）全部完成。4.4 上是阶段 4 唯一动后端的部分：零迁移、零新表。**阶段 5 进行中**：5.1 家长端小程序骨架 + 登录 + 请求封装、5.2 邀请码绑定 + 多孩子切换 + 管理端发码入口、5.3 课表/余额/扣课明细（三个 `/me` 只读接口 + 小程序三页 + 首页改工作台）均已完成。5.3 是阶段 5 首次动后端：**零迁移、零新表、零写路径改动**。
 
 ---
 
 ## §0 交接区（最新在最上面）
+
+### [5.3] 2026-10-31 02:20 · commit `待填`（已推送）
+
+**我改了什么**
+
+- **后端三个只读接口**（`app/api/routes/me.py` + 新服务层 `app/services/portal.py` + `app/schemas/me.py`，零迁移零新表）：
+  - `GET /me/schedule?from=&to=` —— 窗口上限 31 天，无时区 422 `TIMEZONE_REQUIRED`，`from>=to` 422 `RANGE_INVALID`，超限 422 `RANGE_TOO_LARGE`；`cancelled` 不返回；出参 `{student_id, from, to, items[{lesson_id, class_name, subject, teacher_name, start_at, end_at, status}]}`。
+  - `GET /me/balance` —— `total` 直接调 `ledger.total_balance`（实时 `SUM(delta)`），`packages` 直接调 `ledger.student_packages` 后只留 `status=active` 的项，**一处都没重算**。
+  - `GET /me/ledger?type=&page=&page_size=` —— 复用 `ledger.ledger_query`，默认 `page_size=20`、上限 100（超出走 FastAPI 422），出参 `{items[{type, delta, class_name, created_at}], total}`。
+- **统一闸门 `child_session`**：非家长 → 403 `OUT_OF_SCOPE`；无激活孩子 → 403 `OUT_OF_SCOPE`；激活孩子必须仍在**实时**绑定集合里（`get_parent_scope`，不认 token 快照）；通过后才开 `tenant_context` 让 RLS 兜住跨租户。三个接口都不接受客户端传的 `student_id`。
+- **小程序四页**（`pages/home` 改造 + `pages/schedule` / `pages/balance` / `pages/ledger` 新增）：首页从「孩子列表」升级为工作台（顶部当前孩子，点卡进选择孩子页；下方三入口卡）；课表按天分组、`moved`「已调」/`makeup`「补课」徽章、翻周（`‹ 本周 ›`）、下拉刷新；余额大字 total（负数红色 + 欠课时提示）、包列表 30 天内到期标警示色、下拉刷新；明细类型徽章 + 增减课时、上拉加载更多、下拉刷新、空态。
+- **`utils/portal.js`（新增，纯逻辑，20 项 node:test）**：周窗口按**固定 +08:00** 推算（不跟随手机时区；周日归本周、跨月不塌）、`MM-DD HH:mm` 格式化、按天分组、`moved/makeup` 徽章、类型中文名、`nextPageState`、30 天到期判定、负数余额语气、403 错误引导。
+- **测试**：`tests/test_me_portal.py` **15 项**（真 DB）；`miniprogram/tests/portal.test.js` 20 项；`live-smoke.js` 从 54 项扩到 **72 项**（新增 18 条覆盖三页 + 切孩子后数据变化）。
+
+**必须跟着改的地方**
+
+1. **§9.3 的 `week` 字段没做**（032 裁决 3 明确不要 `?week=`）。响应里没有 `week`，改回显 `from`/`to` —— 小程序拿这两个值直接算下一窗口，不依赖服务端周解析。**要按 §9.3 原样出 `week` 就得后端补 ISO 周计算，属于新口径，别默认它已经在。**
+2. **`status` 里的 `makeup` 不是 `lesson.status`。** 排课表只有 `normal/moved/cancelled`，`makeup` 是 `attendance.status`（3.4 补课排期只写考勤座，不写课次）。所以服务层是「`enrollment` 课次 ∪ 补课席位」两路合并，`status` 由补课席位反推；**`cancelled` 再加一层过滤，实际只会出现 3 个值**（`normal` / `moved` / `makeup`）。
+3. **补课可以排进孩子没报名的班**（`POST /makeup-lessons` 只写 attendance），只查 `class_enrollment` 会漏课。改查询请保留这个 union，也别把 makeup 判断写成 `lesson.status == 'makeup'`（永远为假）。
+4. **`/me/balance` 的 `packages` 只给仍有效的包**（`remaining>0` 且未过期），而后台 `GET /students/{id}/balance` 给全部包（含 `expired` / `exhausted`）。**两边 `total` 恒等**（同一 `SUM(delta)`），但 `packages` 条数会不一样，别用「条数相等」做验收断言。过期包那部分课时仍计入 `total`，与 `deduct_lessons` 的先过期先扣是同一份数据。
+5. **未选孩子返回 403 `OUT_OF_SCOPE`，不是 `TENANT_CONTEXT_REQUIRED`。** 三个 `/me` 只读接口刻意不用 `TenantDbSession`（那个依赖会给 `TENANT_CONTEXT_REQUIRED`）。家长端只认一个码，小程序靠它跳「选择孩子」页；改回 `TENANT_CONTEXT_REQUIRED` 小程序就分流不了。
+6. **解绑后 token 里的 `active_student_id` 还在，但接口会立刻 403**（实时复核绑定集合）。小程序此时给「重新选择孩子」按钮，不会再拿旧 token 查出别人的数据。
+7. **`subject` 取 `course.subject`，为空时退化成 `course.name`**；`teacher_name` 走 `class.teacher_id → teacher.name`（老师被停用也照样显示名字，不隐藏历史课）。
+8. **出参时间统一 `+08:00`**：库里是 `timestamptz`，服务层 `astimezone(BUSINESS_TZ)` 后才给 Pydantic，别把这层去掉（否则前端拿到 `+00:00`，`MM-DD HH:mm` 会差 8 小时）。
+9. **窗口上限 31 天、报表上限 366 天，两套口径不通用**。错误码相同（`TIMEZONE_REQUIRED` / `RANGE_INVALID` / `RANGE_TOO_LARGE`），文案里的天数不同。
+10. **`/me/ledger` 只给 4 列**（`type/delta/class_name/created_at`），没有 `reason` / `operator_id` / 流水 `id`。家长端不需要「谁的算子」，但也就看不到「补课转入」这类说明——要显示得给 §9.5 加字段。
+11. **首页不再是孩子列表**：多孩子入口合并到顶部卡（点进 `pages/switch-student`），5.2 那个行内「切到」按钮已移除。测试里若按「首页能看到全部孩子」写断言会挂。
+12. **`wx.request` 的 GET 参数走 `data`**（真机会拼成 query string）。`live-smoke.js` 的 mock 之前没做这个拼接，本轮补上了——以后加带 query 的接口，别再以为 mock 会自动处理。
+
+**给发令部的指令**
+
+- 5.4 若做「上课提醒 / 取消通知」，注意 `cancelled` 在这三个接口里是**不返回**的（家长看课表不需要取消的课）。要做「这节课取消了」的推送，得单独查或加 `include_cancelled=1`，不能复用现在的 `/me/schedule`。
+- 032 裁决 1 砍掉的「课堂反馈」在 01~07 里确实无表无接口，二期要是做，得同时补：表 + 管理端发布入口 + 小程序查看页 + 家长可见范围（现在 `/me/*` 只有三个只读口）。
+- 反馈/通知若要做，可复用 `child_session` 这套闸（角色 → 激活孩子 → 实时绑定复核 → 租户上下文），别各写一遍。
+- `GET /me/balance` 与后台 `/students/{id}/packages` 的**条数口径不同**（见上第 4 条），验收脚本别互相套。
+
+**验证（本地实跑）**
+
+- 后端 `python -m pytest -q`（干净库 + `RUN_DB_TESTS=1` + `alembic upgrade head`）：**269 passed**（原 254 + 新增 15）。
+- 小程序 `node --test`：`request-core` 15 + `session` 22 + `portal` 20 = **57 项全过**。
+- 真后端冒烟 **72 项全过**，连跑 3 轮无差：登录 → 绑定 → 换身份 → 三页取数（课表 2 节含 1 节 `moved`、余额增量 +17、流水 3 条）→ 切孩子后三页数据随之变化 → 切回复原。脚本在**下一周的空档**里挑时段，同一库反复跑不撞跨班冲突。
+- 静态校验（本机无微信开发者工具）：7 个页面的四件套齐全、全部 js `node --check`、全部 json 可解析、WXML 标签栈闭合。
+- `web/` 一行未动（032 要求不涉及管理端），`pnpm` 相关无需重跑。
+
 
 ### [5.2] 2026-10-31 01:15 · commit `f43e593`（已推送；功能轮 CI `41093190247` 的 `test` job 挂在**既存并发 flake**，`lint` / `web` / `docker-smoke` 绿，详见「验证」末条）
 
@@ -621,3 +665,4 @@ DELETE /tenant-holidays/{id}                                             → 204
 | 4.4 下 | `c04f073` | 报表前端三页（出勤率 / 课耗 / 老师课时）：子路由 + 菜单 3 子项、共用日期工具栏、`null` 出勤率显示「—」、detail 展开学生、by_class 展开分布、分钟→`8h 30m`、CSV 导出（BOM + 日期范围文件名）、空数据 el-empty。零后端改动、零新增依赖（dayjs 未引，用 `Intl` 锁 Asia/Shanghai） |
 | 5.1 | `ee406c7` | `miniprogram/` 家长端骨架：原生小程序 + 原生 JS，零依赖零构建链；`request-core.js` 纯逻辑（Bearer 注入 / 401 单航班续期 / 错误归一）配 15 项 node:test；登录页 + 首页孩子列表 + 绑定引导占位；openid/unionid 不落地；develop 环境假 wx_code 兜底。零后端改动、零迁移 |
 | 5.2 | `f43e593` | 小程序绑定页（输码 / 粘贴 / 扫一扫 + 错误码分流引导）+ 选择孩子页 + 登录三分支分流 + 首页「切到」原地重签；`utils/session.js` 纯函数（`mergeSession` 保 role、扫码取码降级）配 22 项 node:test；web 学生页「邀请码」弹窗（24/72/168h、大字展示、过期置灰）。冒烟 54 项、Playwright 30 项。零后端改动、零迁移 |
+| 5.3 | `待填` | 家长端只读三件套：`GET /me/schedule`（31 天窗口、`cancelled` 不返回、`makeup` 由考勤座反推）、`/me/balance`（复用 ledger 的 `total_balance` / `student_packages`，只下有效包）、`/me/ledger`（复用 `ledger_query`，默认 20 上限 100）；统一 `child_session` 闸（角色 → 激活孩子 → 实时绑定复核 → 租户上下文）；小程序首页改工作台 + 课表/余额/明细三页 + `utils/portal.js` 纯逻辑。零迁移、零新表、零写路径改动 |

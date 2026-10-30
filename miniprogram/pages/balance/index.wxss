@@ -1,0 +1,107 @@
+.balance__skeleton {
+  display: flex;
+  flex-direction: column;
+}
+
+.balance__bar {
+  height: 40rpx;
+  border-radius: 8rpx;
+  background: #eef0f3;
+}
+
+.balance__bar + .balance__bar {
+  margin-top: 20rpx;
+}
+
+.balance__bar--short {
+  width: 45%;
+}
+
+.balance__error {
+  margin-top: 0;
+}
+
+.balance__retry {
+  margin-top: 24rpx;
+}
+
+.total {
+  text-align: center;
+  padding: 56rpx 28rpx;
+}
+
+.total__label {
+  font-size: 26rpx;
+}
+
+.total__value {
+  margin-top: 12rpx;
+  font-size: 96rpx;
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--brand);
+}
+
+.total__value--negative {
+  color: var(--danger);
+}
+
+.total__unit {
+  margin-top: 4rpx;
+}
+
+.total__hint {
+  margin-top: 12rpx;
+  color: var(--danger);
+  font-size: 24rpx;
+}
+
+.packages {
+  margin-top: 32rpx;
+}
+
+.packages__title {
+  padding: 0 4rpx 16rpx;
+  font-size: 28rpx;
+  font-weight: 600;
+}
+
+.packages__empty {
+  text-align: center;
+  padding: 40rpx;
+}
+
+/* 不用 flex gap：安卓 X5 老内核不认 */
+.package {
+  display: flex;
+  align-items: center;
+  padding: 26rpx 24rpx;
+  margin-bottom: 16rpx;
+}
+
+.package__main {
+  flex: 1;
+  min-width: 0;
+}
+
+.package__remaining {
+  font-size: 30rpx;
+  font-weight: 500;
+}
+
+.package__expires {
+  margin-top: 8rpx;
+}
+
+.package__expires--warn {
+  color: #b26a00;
+}
+
+.package__warn {
+  margin-left: 16rpx;
+  padding: 4rpx 14rpx;
+  border-radius: 100rpx;
+  background: #fff4e5;
+  color: #b26a00;
+  font-size: 20rpx;
+}
