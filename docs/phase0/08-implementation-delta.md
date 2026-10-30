@@ -8,11 +8,47 @@
 > - 发令部：读 §0 最新一块 + §4 已锁定约定，再出指令。别只看 01~07 原文，那是基线，不是现状。
 > - 开发：动表结构、动既有测试、动已上线接口前，先读 §1 与 §2。
 
-当前状态：**阶段 3 收官（3.5 完成）**，Alembic head = `0010_org_config_audit`，全库 26 张表（业务层 19 张）。阶段 4 进行中：**4.1 前端骨架 + 4.2 档案与班级管理页 + 4.3 排课日历与拖拽调课 + 4.4 上（三个只读报表接口）已完成**。4.4 上是阶段 4 唯一动后端的部分：零迁移、零新表。
+当前状态：**阶段 3 收官（3.5 完成）**，Alembic head = `0010_org_config_audit`，全库 26 张表（业务层 19 张）。**阶段 4 收官**：4.1 前端骨架 + 4.2 档案与班级管理页 + 4.3 排课日历与拖拽调课 + 4.4 上（三个只读报表接口）+ 4.4 下（报表前端页）全部完成。4.4 上是阶段 4 唯一动后端的部分：零迁移、零新表。
 
 ---
 
 ## §0 交接区（最新在最上面）
+
+### [4.4 下] 2026-10-31 00:20 · commit `待填`（已推送，CI `待填`）
+
+**我改了什么**
+
+- 报表页从占位换成真页面：`/reports/attendance`（出勤率）、`/reports/consumption`（课耗）、`/reports/teacher-hours`（老师课时）。`/reports` 改成 redirect 到出勤率，菜单「报表」从单项变 3 个子项。路由权限 `meta.roles: ['admin','registrar']`。
+- 出勤率页：班级汇总表（班级/课次数/到课/请假/缺勤/出勤率）+「按学生展开」开关（切 `detail=true`）+ 班级下拉（`class_id`）+ `notes` 用 el-alert 摆表格上方。**`attendance_rate === null` 渲染成「—」（灰色），`0` 渲染成「0%`**，两者视觉与语义都分开。
+- 课耗页：学生主表 + 展开行显示该生的 `by_class` 班级分布（`student_id → rows` 建 Map，展开 O(1)）。`class_id` 为空的异常流水显示「未关联班级」，不隐藏。
+- 老师课时页：老师/课次数/已完成节数/总时长，`total_minutes` 只做分钟→`8h 30m` 展示换算；页头 meta 带总时长小计。
+- 三页共用 `views/reports/components/ReportToolbar.vue`：日期范围（`daterange`，`value-format=YYYY-MM-DD`）+ 本月/上月/近 30 天快捷 + 导出 CSV。**工具栏不发请求**，页面 `watch` 范围变化自行重查。
+- 新增 `types/report.ts`、`api/report.ts`、`utils/report.ts`（窗口换算 + `formatRate` / `formatMinutes` / 文件名）。**零后端改动、零新增依赖**。
+
+**必须跟着改的地方**
+
+1. **本步偏离 029 指令一处：没引 dayjs**。指令写「用 dayjs 把本地时间 pin 到 Asia/Shanghai」，但 4.1 禁令是「禁止新增依赖」，且 dayjs 只是 element-plus 的**传递依赖**，在 pnpm 的严格 `node_modules` 下直接 `import 'dayjs'` 会解析失败（顶层没有链接）。改用 `Intl.DateTimeFormat('Asia/Shanghai')`（`utils/timetable.ts#businessToday`）+ 纯字符串日期运算（`utils/report.ts`），效果等价：默认窗口 = 业务时区本月 1 号 ~ 今天，请求时拼 `T00:00:00+08:00`。**换机器时区不会串月**（e2e 里用 `Intl` 现算日期做断言，跨零点也不会假失败）。
+2. **右界要推到次日**。页面选 `10-01 ~ 10-31`，实际请求是 `from=2026-10-01T00:00:00+08:00&to=2026-11-01T00:00:00+08:00`——接口是左闭右开，不推这一天就会漏掉 10/31 当天的课。用户看到的是「含首尾」，语义转换在 `toWindowIso()` 一处。
+3. **出勤率 Tab 多了班级筛选**（指令没要求）。`GET /reports/attendance-summary` 本来就支持 `class_id`，**不是新增接口**；`class_id` 与 `detail=true` 同时传时，学生明细也只算该班。
+4. **导出是「当前看到的那张表」，两张表只能二选一**。指令写「当前 Tab 当前筛选结果导出」，但出勤率 Tab 有班级汇总 + 学生明细两张表：`detail` 关 → 导班级汇总（`出勤率_2026-10-01_2026-10-31.csv`）；`detail` 开 → 导学生明细（`出勤率-学生明细_...csv`）。CSV 里 `null` 出勤率写「—」，与页面一致（不写空、不写 0）。
+5. **报表页没有分页器**。三个接口都不分页（`total` 就是条目数），表格直接渲染 `items`。班级下拉用 `/classes?page_size=100` 一次拉全，**超过 100 个班要后端加搜索/分页参数**，本步没加。
+6. **菜单结构变了**：4.1 的「报表」单项占位已删除，`PlaceholderView` 不再承担报表。若发令部按旧菜单写断言（「报表」是 `el-menu-item`），会失败——现在是 `el-sub-menu` + 3 个 `el-menu-item`。
+7. **前端一律不重算比率**。出勤率、课耗、时长全部照抄后端字段，`formatRate` 只做 `null → 「—」`，`formatMinutes` 只做除法取整。`null` 口径在页面层再算一遍就会丢。
+8. **空数据不渲染空表格**：`el-empty` 与 `el-table` 互斥；加载中保留表格骨架 + `v-loading`，避免闪烁。
+
+**给发令部的指令**
+
+- 后续做签到页 / 工作台，窗口换算直接复用 `utils/report.ts`（`monthToDateRange` / `toWindowIso` / `isRangeValid`）与 `ReportToolbar.vue`，别再各写一份日期拼接。
+- 老师课时口径是课次**实际时长**（`end_at - start_at`）而不是课程配置的 `duration_min`；前端只展示，不改口径。
+- 图表（趋势线、饼图）属二期，本期纯表格，`echarts` 一行没引。
+- `detail=true` 没有分页字段：学生上千的机构会一次渲染全部学生行。要「按学生分页」得后端加 `page/page_size`，前端再补分页器。
+
+**验证（本地实跑）**
+
+- `pnpm build`（`vue-tsc --noEmit` + `vite build`）通过；三个报表页各自独立 chunk。
+- Playwright 驱动本机 Edge 打**真后端**（嵌入式 PG + uvicorn），**49 条断言全过**：菜单 3 子项、`/reports` 重定向、布局标题、4 个班级行、A 班 2/3/1/0/75%、B 班「—」、C 班 0%、makeup notes alert、按学生展开 2 人（王小明 3 到课 75% / 李小红 33%）、关闭开关表格消失、CSV 前三字节 `ef bb bf` + 含「75%」+ 文件名带日期范围、班级筛选只剩 1 行、课耗 2 人（王小明 3 课时）与展开行班级分布、老师 6 节/5 完成/8h 30m、点「上月」出 `el-empty` 且不渲染表格、teacher 菜单无报表且直访被拦 403、全程 0 条 JS 报错。
+- 造数（临时脚本，未入库）：4 班 5 课次 7 条考勤 4 条 consume 流水，含 1 条未来课（只为验证 `completed_count < lesson_count`）与 1 条 makeup。
+- CI：见下方「4.4 下 CI」补记。
 
 ### [4.4 上] 2026-10-30 23:58 · commit `2834336`（已推送，CI 41082564404 四 job 全绿）
 
@@ -487,3 +523,4 @@ DELETE /tenant-holidays/{id}                                             → 204
 | 4.2 | `350b713` | 学生/家长/老师/教室/班级 5 个管理页 + 学员名单抽屉 + CSV 导出（BOM）+ 批量导入（papaparse，逐条 POST，200 行上限）；`ApiError.fieldErrors` 接 422 字段回显；开发环境改 Vite 代理 `/api`（后端无 CORS） |
 | 4.3 | `98631ae` | 排课日历（自绘周网格 + 月概览）+ 原生拖拽调课（15 分钟吸附、本地老师/教室预检、乐观更新 + 409 明细回滚）+ 课次详情/调课/取消 + 新增单次课；搭车补课程维护页；`ApiError.detail` 透传 `error.conflicts`。零后端改动 |
 | 4.4 上 | `2834336` | 三个只读报表接口：`/reports/attendance-summary`（按班级 + `detail` 按学生）、`/reports/consumption`（含 `by_class`）、`/reports/teacher-hours`；`OfficeUser` 收口；窗口 `[from,to)` 按 UTC+8，366 天上限；`null` 出勤率、makeup 计入并注明；零迁移、零写操作、零新表 |
+| 4.4 下 | `待填` | 报表前端三页（出勤率 / 课耗 / 老师课时）：子路由 + 菜单 3 子项、共用日期工具栏、`null` 出勤率显示「—」、detail 展开学生、by_class 展开分布、分钟→`8h 30m`、CSV 导出（BOM + 日期范围文件名）、空数据 el-empty。零后端改动、零新增依赖（dayjs 未引，用 `Intl` 锁 Asia/Shanghai） |

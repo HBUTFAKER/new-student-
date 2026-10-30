@@ -93,9 +93,25 @@ const routes: RouteRecordRaw[] = [
       },
       {
         path: 'reports',
-        name: 'reports',
-        component: () => import('@/views/PlaceholderView.vue'),
-        meta: { title: '报表', roles: OFFICE },
+        redirect: { name: 'reports-attendance' },
+      },
+      {
+        path: 'reports/attendance',
+        name: 'reports-attendance',
+        component: () => import('@/views/reports/AttendanceReportView.vue'),
+        meta: { title: '出勤率报表', roles: OFFICE },
+      },
+      {
+        path: 'reports/consumption',
+        name: 'reports-consumption',
+        component: () => import('@/views/reports/ConsumptionReportView.vue'),
+        meta: { title: '课耗报表', roles: OFFICE },
+      },
+      {
+        path: 'reports/teacher-hours',
+        name: 'reports-teacher-hours',
+        component: () => import('@/views/reports/TeacherHoursReportView.vue'),
+        meta: { title: '老师课时报表', roles: OFFICE },
       },
       {
         path: 'settings',

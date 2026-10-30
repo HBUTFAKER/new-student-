@@ -33,7 +33,16 @@ const OFFICE_MENU: MenuItem[] = [
     ],
   },
   { title: '签到', path: '/attendance', icon: 'Checked' },
-  { title: '报表', path: '/reports', icon: 'DataLine' },
+  {
+    title: '报表',
+    path: '/reports',
+    icon: 'DataLine',
+    children: [
+      { title: '出勤率', path: '/reports/attendance', icon: 'CircleCheck' },
+      { title: '课耗', path: '/reports/consumption', icon: 'Coin' },
+      { title: '老师课时', path: '/reports/teacher-hours', icon: 'Timer' },
+    ],
+  },
   { title: '机构设置', path: '/settings', icon: 'Setting' },
 ]
 
