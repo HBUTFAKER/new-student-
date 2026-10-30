@@ -1,0 +1,29 @@
+<view class="page login">
+  <view class="login__hero">
+    <view class="login__logo">课</view>
+    <view class="login__title">家长端</view>
+    <view class="login__sub">查看孩子的课表、课时余额与扣课明细</view>
+  </view>
+
+  <view class="card login__card">
+    <button
+      class="btn"
+      loading="{{submitting}}"
+      disabled="{{submitting}}"
+      bindtap="onLogin"
+    >
+      {{submitting ? '正在登录…' : '微信一键登录'}}
+    </button>
+
+    <view class="muted login__tip">
+      登录后仅能查看已在机构绑定过的孩子信息，绑定需向机构索取邀请码。
+    </view>
+
+    <view wx:if="{{error}}" class="error-box">
+      <text>{{error}}</text>
+      <view class="login__retry" bindtap="onRetry">重试</view>
+    </view>
+  </view>
+
+  <view class="muted login__footer">一期仅支持微信登录</view>
+</view>

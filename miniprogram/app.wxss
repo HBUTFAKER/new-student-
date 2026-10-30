@@ -1,0 +1,71 @@
+/* 全局基础样式：三个页面共用 */
+
+page {
+  --brand: #2f6fed;
+  --text: #1f2329;
+  --text-weak: #8a9099;
+  --bg: #f4f5f7;
+  --card: #ffffff;
+  --danger: #d93026;
+  --border: #ebedf0;
+
+  background: var(--bg);
+  color: var(--text);
+  font-size: 28rpx;
+  font-family: -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif;
+}
+
+.page {
+  min-height: 100vh;
+  padding: 32rpx 28rpx calc(48rpx + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+}
+
+.card {
+  background: var(--card);
+  border-radius: 20rpx;
+  padding: 32rpx 28rpx;
+  box-shadow: 0 2rpx 12rpx rgba(28, 36, 48, 0.05);
+}
+
+.btn {
+  width: 100%;
+  height: 88rpx;
+  line-height: 88rpx;
+  border-radius: 12rpx;
+  background: var(--brand);
+  color: #fff;
+  font-size: 30rpx;
+  font-weight: 500;
+  border: none;
+}
+
+.btn::after {
+  border: none;
+}
+
+.btn[disabled] {
+  background: #a9c1f5;
+  color: #fff;
+}
+
+.btn--ghost {
+  background: #fff;
+  color: var(--brand);
+  border: 1rpx solid var(--brand);
+}
+
+.error-box {
+  margin-top: 24rpx;
+  padding: 20rpx 24rpx;
+  border-radius: 12rpx;
+  background: #fdecea;
+  color: var(--danger);
+  font-size: 26rpx;
+  line-height: 1.5;
+}
+
+.muted {
+  color: var(--text-weak);
+  font-size: 24rpx;
+}

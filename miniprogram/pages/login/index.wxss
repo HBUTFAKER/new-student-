@@ -1,0 +1,56 @@
+.login {
+  display: flex;
+  flex-direction: column;
+}
+
+.login__hero {
+  padding: 96rpx 8rpx 64rpx;
+  text-align: center;
+}
+
+.login__logo {
+  width: 112rpx;
+  height: 112rpx;
+  margin: 0 auto 28rpx;
+  border-radius: 28rpx;
+  background: var(--brand);
+  color: #fff;
+  font-size: 52rpx;
+  font-weight: 600;
+  line-height: 112rpx;
+  text-align: center;
+}
+
+.login__title {
+  font-size: 44rpx;
+  font-weight: 600;
+  letter-spacing: 2rpx;
+}
+
+.login__sub {
+  margin-top: 16rpx;
+  color: var(--text-weak);
+  font-size: 26rpx;
+}
+
+.login__card {
+  padding: 36rpx 28rpx;
+}
+
+.login__tip {
+  margin-top: 24rpx;
+  line-height: 1.6;
+}
+
+.login__retry {
+  margin-top: 12rpx;
+  color: var(--brand);
+  font-size: 26rpx;
+  text-decoration: underline;
+}
+
+.login__footer {
+  margin-top: auto;
+  padding-top: 48rpx;
+  text-align: center;
+}
