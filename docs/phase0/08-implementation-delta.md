@@ -8,11 +8,41 @@
 > - 发令部：读 §0 最新一块 + §4 已锁定约定，再出指令。别只看 01~07 原文，那是基线，不是现状。
 > - 开发：动表结构、动既有测试、动已上线接口前，先读 §1 与 §2。
 
-当前状态：**阶段 3.4 完成**，Alembic head = `0009_lesson_exclude`，全库 26 张表（业务层 19 张）。
+当前状态：**阶段 3 收官（3.5 完成）**，Alembic head = `0010_org_config_audit`，全库 26 张表（业务层 19 张）。
 
 ---
 
 ## §0 交接区（最新在最上面）
+
+### [3.5] 2026-10-30 16:20 · commit `a22d03c`（待 push，CI 待确认）
+
+**我改了什么**
+
+- 点名签到 `POST /lessons/{lesson_id}/attendance`（200）：请求 `{records:[{student_id,status}]}` → 响应 `{lesson_id, results:[{student_id,status,deduct_lessons,deduplicated,reason}]}`（05 §6.1 契约）。`cancelled` → 422 `LESSON_CANCELLED`；`now < start_at` → 422 `LESSON_NOT_STARTED`；教务/管理员任意课次，老师仅任教班级课次（按 `Class.teacher_id` 实时判定，否则 403 `OUT_OF_SCOPE`）。
+- 三条红线落在 `app/services/attendance.py`：整批一个事务 + **每个学生一层 `begin_nested()` SAVEPOINT**；**幂等由唯一键裁决**（先 INSERT，命中 23505 再回读，不做先查后插）；扣课只调 `deduct_lessons`（`app/services/ledger.py` 一行没改，也没有任何 grant/refund/adjust 代码）。
+- `present` 扣 1；`leave`/`absent` 按 `org_config.absence_deduct_rule`（`none`=0 / `deduct`=1）。
+- 3.4 的 `makeup` 预登记行在正式签到时 **原地转正**：`SELECT ... FOR UPDATE` 后 UPDATE 为本次 status + 扣课；转正后即为最终状态，再提交走 `deduplicated`。
+- 余额不足 → 该学生 `{status:"failed", reason:"BALANCE_EXHAUSTED"}`，savepoint 回滚（**不写 attendance 行**），其他人照常成功；购课后可单独重提，已成功的别人不重扣。
+- `GET /lessons/{lesson_id}/attendance`（200，`{items,total}`，含 `student_id/status/deduct_lessons/operator_id`），权限同写入。
+- `GET /org-config/absence-deduct-rule`：教务/管理员/老师可读；`PATCH` 仅 admin/registrar；非法值 422 `RULE_VALUE_INVALID`；留痕 `updated_by`/`updated_at`。
+- 迁移 `0010_org_config_audit`：`org_config` 加 `updated_by`（uuid）、`updated_at`（timestamptz）两列。**不加表**，表数仍 26 / 业务层 19。
+- 测试 11 项（`tests/test_attendance.py`）；全量 244 passed。
+
+**必须跟着改的地方**
+
+1. `tests/test_models.py::test_no_table_has_updated_at`：原断言「任何表都不许有 `updated_at`」与 024 要求的两列**直接冲突**。已把 `org_config` 作为唯一例外放行（并断言这两列确实存在），其余表继续禁。这不是回归，是指令与既有不变量的冲突，已按最小改动处理。
+2. `scripts/reconcile_ledger.py`：修了一个**既有 bug**——孤儿包判定用的 `seen` 集合原本在每个学生循环里重置，同一机构第二个学生有课时包时，前一个学生的包会被误报 `orphan_purchase`。签到上线后一个机构必然多个学生各自买课，这个 bug 会让对账测试变红。已改为按租户累积。
+3. 表数没动：26 / 业务层 19，`test_models`、`test_migrations` 的硬编码数字保持不变。
+
+**给发令部的指令**
+
+- **签到只产生 `consume`**（`none` 模式下不产生流水）；签到链路禁止写 grant/refund/adjust。
+- **二维码自助签到按 01-user-stories 的二期清单后置二期**（本步只做点名签到）。
+- `makeup` 行不是幂等重复：正式签到必须原地转正；转正后才是最终状态。
+- 补课学生缺席按 `absence_deduct_rule` 同规则处理，不特殊化。
+- `moved` 课次可签（时间已是新的），`cancelled` 不可签。
+- 老师权限每次请求实时按 `Class.teacher_id` 判定，不做归属缓存。
+- **已知限制（如实上报）**：签到每次每人只扣 1，所以「单包不足拆两条 `consume`」在签到入口**不可达**；拆包行为仍由 2.5 的 `deduct_lessons` 与 `tests/test_ledger.py::test_deduction_drains_earliest_expiry_first_and_splits_rows` 保证。本步测的是「先过期先扣」的顺序。
 
 ### [3.4] 2026-10-30 06:55 · commit `5af6cc5` + `51d44ad`（已推送，CI 40962744127 全绿）
 
@@ -188,9 +218,11 @@ DELETE /tenant-holidays/{id}                                             → 204
 
 | 项 | 出处 | 归属 |
 |----|------|------|
-| 签到（`POST /lessons/{id}/attendance`，扣课时同事务+幂等、请假/缺勤扣课规则） | 05 §6 | 3.5 |
+| 二维码自助签到（`POST /lessons/{id}/qr-checkin`） | 05 二期清单 | 二期（发令部已裁决） |
 | 通知中心（调课/取消/补课事件 `lesson.moved`/`lesson.cancelled`/`makeup.scheduled` 的联动） | 05 §6.1 | 6.1 |
 | 老师/家长课表收窄（`GET /lessons` 按任教/绑定班级自动收窄） | 05 §5.3 | 课表接口（US-101） |
+
+> 签到四条（点名/结果/规则读/规则写）已在 3.5 落地，从本表移除。
 
 > 原 `POST /lessons`（单次加课）、`PATCH /lessons/{id}`（调课/取消）、`LESSON_OVERLAP` 独立错误码三条已在 3.4 落地，从本表移除。
 
@@ -202,10 +234,12 @@ DELETE /tenant-holidays/{id}                                             → 204
 |----|------|------|
 | `invite_code` | 新增（第 18 张业务表） | 1.6 |
 | `tenant_holiday` | 新增（第 19 张业务表 / 全库第 26 张） | 3.2 |
+| `org_config` | **加列**（不加表）：`updated_by` uuid、`updated_at` timestamptz，US-217 最小留痕 | 3.5 |
 
 - 表数口径：平台层 4 + 微信层 3 + 业务层 19 = **26**。
 - `tenant_holiday` 无 `updated_at`/`deleted_at`：节假日不软删，DELETE 物理删除后可重新登记。
 - 模型属性名 `holiday_date`，列名仍是 `date`（避开 `datetime.date` 遮蔽）。
+- `org_config` 是 **唯一** 带 `updated_at` 的表（US-217 留痕，迁移 `0010`）。`tests/test_models.py` 的「无表可有 updated_at」断言已把它列为唯一例外；其他表再加就红。完整审计日志（US-304）仍是后续阶段。
 
 ---
 
@@ -223,6 +257,9 @@ DELETE /tenant-holidays/{id}                                             → 204
 | 冲突重叠判定 | `start < other.end AND end > other.start`（边界相接不算）；`status != cancelled` 不占位 | 3.3 |
 | 冲突 409 | `SCHEDULE_CONFLICT`，`detail={"conflicts": [...]}`；EXCLUDE 违例 23P01 → 409 | 3.3 |
 | `Lesson.status` 取值 | `normal` / `moved` / `cancelled`（默认 normal，无枚举） | 3.3 |
+| 签到幂等 | 唯一键 `(tenant_id, lesson_id, student_id)` 是裁判；命中最终状态 → `deduplicated`，命中 `makeup` → 原地转正 + 扣课 | 3.5 |
+| 签到扣课 | `present` 扣 1；`leave`/`absent` 按 `org_config.absence_deduct_rule`；只调 `deduct_lessons`，禁止 grant/refund/adjust | 3.5 |
+| 签到事务 | 整批一个事务 + 每学生一层 SAVEPOINT；余额不足只回滚该学生，不写 attendance 行 | 3.5 |
 
 ---
 
@@ -236,3 +273,4 @@ DELETE /tenant-holidays/{id}                                             → 204
 | 文档 | `7e55f92` | 本文件建立；04/04-er/05 数字与契约提示修正 |
 | 3.3 | `d96c79d` | `find_conflicts` 三维度 + 迁移 `0009` EXCLUDE + `create_lesson` + `validate` 接口；生成响应加 `skipped_conflicts` |
 | 3.4 | `5af6cc5` | `POST /lessons`（复用 `create_lesson` 补引用校验）、`PATCH /lessons/{id}`（moved/cancelled，`LESSON_ALREADY_DONE` 守门 + `LESSON_OVERLAP`）、`POST /makeup-lessons`（纯排期写 attendance makeup 行，不碰流水） |
+| 3.5 | `a22d03c` | 签到扣课（同事务 + 逐学生 SAVEPOINT + 唯一键幂等 + makeup 原地转正）；`GET attendance`；`org_config` 规则读写 + `updated_by/updated_at`（迁移 `0010`）；修对账脚本孤儿包误报 |
