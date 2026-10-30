@@ -494,6 +494,43 @@ async def test_concurrent_check_in_deducts_once(
     assert len(rows) == 1
 
 
+async def test_three_check_ins_deduct_three(
+    client, owner_engine, attendance_seed: AttendanceSeed
+) -> None:
+    """验收线：签到 3 次扣 3 课时（三次不同课次，余额与流水同时对上）。"""
+
+    seed = attendance_seed
+    headers = await login(client, seed.admin_phone)
+    await buy(client, headers, seed, student_id=seed.student1_id, lesson_count=5)
+
+    deducted = 0
+    for day, hour in ((past_day() - timedelta(days=1), 18), (past_day(), 18), (past_day(), 20)):
+        lesson_id = await seed_lesson(
+            owner_engine,
+            seed,
+            class_id=seed.class_a_id,
+            classroom_id=seed.classroom1_id,
+            teacher_id=seed.teacher1_id,
+            start_at=at(day, hour),
+            end_at=at(day, hour + 1),
+        )
+        response = await mark(client, headers, lesson_id, [(seed.student1_id, "present")])
+        assert response.status_code == 200, response.text
+        deducted += response.json()["results"][0]["deduct_lessons"]
+
+    assert deducted == 3
+
+    balance = await client.get(f"/students/{seed.student1_id}/balance", headers=headers)
+    assert balance.status_code == 200, balance.text
+    assert balance.json()["total"] == 2
+
+    ledger = await client.get(
+        f"/students/{seed.student1_id}/ledger", params={"type": "consume"}, headers=headers
+    )
+    assert ledger.json()["total"] == 3
+    assert [entry["delta"] for entry in ledger.json()["items"]] == [-1, -1, -1]
+
+
 async def test_different_students_are_independent(
     client, owner_engine, attendance_seed: AttendanceSeed
 ) -> None:
