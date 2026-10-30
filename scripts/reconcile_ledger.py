@@ -161,8 +161,9 @@ async def _check_tenant(db: AsyncSession) -> dict:
         )
 
     # 2.5: consumed lessons per lesson vs. the attendance deduction count.
-    # Before step 3 lands check-in there are no attendance rows, so every
-    # lesson shows up here as "pending" -- a warning, never a mismatch.
+    # 3.5 起签到会写 attendance 行，两者理应逐课次相等；历史数据（3.5 之前靠
+    # 2.5 的 POST /lessons/{id}/make-ups 扣课）仍可能对不上，所以继续按 warning
+    # 报出、不计入 diff_count。
     consumed = dict(
         (
             await db.execute(
@@ -190,7 +191,7 @@ async def _check_tenant(db: AsyncSession) -> dict:
                     "kind": "attendance_pending",
                     "lesson_id": str(lesson_id),
                     "consumed": int(consumed_count),
-                    "note": "阶段 3 签到未接入，本次仅提示不计差异",
+                    "note": "签到与流水不一致，仅提示不计差异，请人工核对",
                 }
             )
         elif int(deducted or 0) != int(consumed_count):
@@ -200,7 +201,7 @@ async def _check_tenant(db: AsyncSession) -> dict:
                     "lesson_id": str(lesson_id),
                     "consumed": int(consumed_count),
                     "deducted": int(deducted or 0),
-                    "note": "阶段 3 签到未接入，本次仅提示不计差异",
+                    "note": "签到与流水不一致，仅提示不计差异，请人工核对",
                 }
             )
     return report
