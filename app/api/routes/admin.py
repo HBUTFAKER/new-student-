@@ -5,7 +5,7 @@
 ``wechat_subscribe`` 通道里）。
 """
 
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter
 from sqlalchemy import select
@@ -15,7 +15,12 @@ from app.api.permissions import OfficeUser
 from app.core.errors import AppError
 from app.models.archive import Parent
 from app.models.notification_center import Notification
-from app.schemas.admin import NotificationTestRequest, NotificationTestResponse
+from app.schemas.admin import (
+    NotificationTestRequest,
+    NotificationTestResponse,
+    SmsUsageResponse,
+)
+from app.services.channels.sms import count_today_sms, daily_sms_budget
 from app.services.notification_center import enqueue_notification
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -74,3 +79,31 @@ async def test_notification(
         select(Notification.id).where(Notification.dedupe_key == dedupe_key)
     )
     return NotificationTestResponse(notification_id=notification_id)
+
+
+@router.get(
+    "/sms-usage",
+    response_model=SmsUsageResponse,
+    summary="查询机构当日短信用量（6.3）",
+)
+async def sms_usage(
+    db: TenantDbSession,
+    principal: OfficeUser,
+    tenant_id: UUID | None = None,
+) -> SmsUsageResponse:
+    """查当日该租户短信已发条数 + 预算 + 剩余。
+
+    * ``tenant_id`` 省略 = 查当前登录机构；显式传且与当前机构不一致 → 404（跨租户读 404，
+      0.3 口径）；
+    * 收口 admin/registrar，老师 / 家长 403 ``OUT_OF_SCOPE``。
+    """
+
+    own_tenant = principal.tenant_id
+    if own_tenant is None:
+        raise AppError(403, "TENANT_CONTEXT_REQUIRED", "请先选择孩子")
+    if tenant_id is not None and tenant_id != own_tenant:
+        raise AppError(404, "TENANT_NOT_FOUND", "机构不存在")
+
+    used = await count_today_sms(db, own_tenant)
+    budget = await daily_sms_budget(db, own_tenant)
+    return SmsUsageResponse(used=used, budget=budget, remaining=max(budget - used, 0))

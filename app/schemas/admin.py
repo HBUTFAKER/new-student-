@@ -15,3 +15,11 @@ class NotificationTestRequest(BaseModel):
 
 class NotificationTestResponse(BaseModel):
     notification_id: UUID
+
+
+class SmsUsageResponse(BaseModel):
+    """机构当日短信用量：已发条数 / 预算 / 剩余。"""
+
+    used: int
+    budget: int
+    remaining: int

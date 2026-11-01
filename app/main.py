@@ -16,7 +16,11 @@ from app.api.router import api_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.db.engine import engine
-from app.services.channels import wechat_subscribe  # noqa: F401 — 导入即注册 6.2 通道
+from app.services.channels import (  # noqa: F401 — 导入即注册 6.2/6.3 通道
+    sms,
+    wechat_mp,
+    wechat_subscribe,
+)
 from app.services.notification_center import run_notification_worker
 
 logger = logging.getLogger(__name__)

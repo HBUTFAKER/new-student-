@@ -83,6 +83,17 @@ class Settings(BaseSettings):
         default_factory=_default_subscribe_templates
     )
 
+    # 6.3 服务号模板消息通道。app_id 为空 = 机构未配置服务号 → 通道整体不可用、静默跳过。
+    # real 客户端需 WECHAT_MP_APP_SECRET 且关闭 WECHAT_STUB_MODE（切点 build_wechat_mp_client）。
+    wechat_mp_app_id: str = ""
+    wechat_mp_app_secret: str = ""
+    wechat_mp_template_id: str = ""
+
+    # 6.3 短信通道。sms_provider 为空 = 未配置供应商 → 通道整体不可用、静默跳过。
+    # 一期不绑定具体厂商，接口按「发一条文本到手机号」抽象；real 切点 build_sms_client。
+    sms_provider: str = ""
+    sms_stub_mode: bool = True
+
     # 6.1: notification centre worker. The in-process poller is a stop-gap until
     # 6.4 ships a scheduler; it runs on a single-instance deployment only.
     # Env: NOTIFICATION_WORKER_ENABLED=0 / NOTIFICATION_WORKER_INTERVAL_SECONDS=30.

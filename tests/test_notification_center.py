@@ -200,61 +200,82 @@ async def test_failure_retries_then_exhausted(db_factory, seed) -> None:
 
 
 async def test_retry_succeeds_after_transient_failure(db_factory, seed) -> None:
-    tenant_id, parent_a, _, _ = seed
+    """第一个通道永久跳过、第二个临时失败 → 重试后第二个成功、通知 succeeded。"""
+
+    tenant_id, *_ = seed
     flaky = _FlakyChannel(fail_times=1)
+    skipper = _SkippingChannel()
     nc.register_channel("test_flaky", flaky)
+    nc.register_channel("test_skipper", skipper)
 
     await enqueue(
         db_factory,
         tenant_id=tenant_id,
         dedupe_key="flaky-1",
-        payload=in_app_payload([parent_a]),
-        channels=[nc.CHANNEL_IN_APP, "test_flaky"],
+        payload={},
+        channels=["test_skipper", "test_flaky"],
     )
-    # 第一轮：in_app 成功落库，flaky 失败 → 整条留 pending
+    # 第一轮：skipper 永久跳过，flaky 临时失败 → 整条留 pending
     await nc.process_pending_notifications(db_factory)
     notification = await get_notification(db_factory, "flaky-1")
     assert notification.status == nc.STATUS_PENDING
-    assert notification.succeeded_channels == [nc.CHANNEL_IN_APP]
-    assert await count_messages(db_factory, parent_id=parent_a) == 1
+    assert notification.succeeded_channels == []
+    assert flaky.calls == 1
 
-    # 第二轮：flaky 成功，in_app 不再重发 → 最终只落一条站内信
+    # 第二轮：flaky 成功 → 最终 succeeded；跳过的 skipper 不记入 succeeded
     await set_next_retry_to_past(db_factory, "flaky-1")
     await nc.process_pending_notifications(db_factory)
     notification = await get_notification(db_factory, "flaky-1")
     assert notification.status == nc.STATUS_SUCCEEDED
-    assert await count_messages(db_factory, parent_id=parent_a) == 1
+    assert notification.succeeded_channels == ["test_flaky"]
     assert flaky.calls == 2
 
 
-async def test_partial_channel_success_skips_successful_on_retry(db_factory, seed) -> None:
+async def test_first_success_stops_remaining_channels(db_factory, seed) -> None:
+    """降级链（6.3）：第一个通道成功即停，后续通道不再调用。"""
+
     tenant_id, *_ = seed
-    ok = _CountingChannel(fail=False)
-    fail = _CountingChannel(fail=True)
-    nc.register_channel("test_part_ok", ok)
-    nc.register_channel("test_part_fail", fail)
+    first = _CountingChannel(fail=False)
+    later = _CountingChannel(fail=False)
+    nc.register_channel("test_first", first)
+    nc.register_channel("test_later", later)
 
     await enqueue(
         db_factory,
         tenant_id=tenant_id,
-        dedupe_key="part-1",
+        dedupe_key="stop-1",
         payload={},
-        channels=["test_part_ok", "test_part_fail"],
+        channels=["test_first", "test_later"],
     )
     await nc.process_pending_notifications(db_factory)
-    notification = await get_notification(db_factory, "part-1")
-    assert notification.status == nc.STATUS_PENDING
-    assert notification.succeeded_channels == ["test_part_ok"]
-    assert ok.calls == 1
-    assert fail.calls == 1
 
-    # 重试只发失败的 test_part_fail，成功过的 test_part_ok 不再发
-    await set_next_retry_to_past(db_factory, "part-1")
+    notification = await get_notification(db_factory, "stop-1")
+    assert notification.status == nc.STATUS_SUCCEEDED
+    assert notification.succeeded_channels == ["test_first"]
+    assert first.calls == 1
+    assert later.calls == 0  # 第一个成功即停，后续不再执行
+
+
+async def test_all_channels_skipped_is_exhausted(db_factory, seed) -> None:
+    """所有通道都永久跳过、没有一个真正送达 → exhausted（NO_CHANNEL_AVAILABLE 终态）。"""
+
+    tenant_id, *_ = seed
+    skipper = _SkippingChannel()
+    nc.register_channel("test_skipper", skipper)
+
+    await enqueue(
+        db_factory,
+        tenant_id=tenant_id,
+        dedupe_key="skip-all",
+        payload={},
+        channels=["test_skipper"],
+    )
     await nc.process_pending_notifications(db_factory)
-    notification = await get_notification(db_factory, "part-1")
-    assert fail.calls == 2
-    assert ok.calls == 1
-    assert notification.succeeded_channels == ["test_part_ok"]
+
+    notification = await get_notification(db_factory, "skip-all")
+    assert notification.status == nc.STATUS_EXHAUSTED
+    assert notification.succeeded_channels == []
+    assert notification.attempts == 0  # 跳过不重试、不计 attempts
 
 
 async def test_concurrent_process_no_double_dispatch(db_factory, seed) -> None:
@@ -336,6 +357,17 @@ class _CountingChannel:
         self.calls += 1
         if self.fail:
             raise RuntimeError("counting channel boom")
+
+
+class _SkippingChannel:
+    """永远永久跳过的假通道：每次 send 都 raise ChannelSkipped。"""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def send(self, ctx: nc.NotificationContext) -> None:
+        self.calls += 1
+        raise nc.ChannelSkipped("TEST_SKIPPED")
 
 
 class _FlakyChannel:

@@ -7,10 +7,12 @@
 
 * ``dedupe_key`` 是事件幂等的根：入队 ``INSERT ... ON CONFLICT (dedupe_key) DO NOTHING``，
   「同一事件不重复发」的第一道防线（禁止先查后插）。
-* 状态机三态：``pending → succeeded``（全部通道成功）或 ``pending → exhausted``（重试
-  次数用尽，终态不重扫）。失败不单独存一态，失败后仍留在 ``pending``、``attempts + 1``、
-  ``next_retry_at`` 指数退避（30s × 4ⁿ）。
-* ``succeeded_channels`` 记录已成功通道，重试只发剩余通道——部分成功不重复发。
+* 状态机三态：``pending → succeeded``（降级链上第一个通道成功即停）或 ``pending → exhausted``
+  （重试次数用尽，或所有通道都被永久跳过，终态不重扫）。失败不单独存一态，失败后仍留在
+  ``pending``、``attempts + 1``、``next_retry_at`` 指数退避（30s × 4ⁿ）。
+* ``channels`` 是**有序降级链**（6.3）：按序尝试，第一个成功即停；``ChannelSkipped`` 表示
+  本级永久跳过、继续下一级；其余异常是临时失败、走重试。``succeeded_channels`` 只记真正
+  送达过的通道，重试不再重发。
 * ``process_pending_notifications`` 用 ``FOR UPDATE SKIP LOCKED``，两个 worker 并发不会拿
   同一行。单实例部署安全（一期如此）；多实例要上分布式锁（6.4 再评估）。
 """
@@ -67,6 +69,20 @@ class ChannelAdapter(Protocol):
     """通道适配器接口：``send`` 抛异常 = 该通道本轮失败。"""
 
     async def send(self, ctx: NotificationContext) -> None: ...
+
+
+class ChannelSkipped(Exception):
+    """通道适配器声明「本级永久不可用」，引擎继续尝试下一个通道。
+
+    与普通异常（临时失败 → 重试）区分：``ChannelSkipped`` 不重试、不记失败、不计
+    ``attempts``，只是让降级链往下走一级（0.7 的「转下一级」）。``reason_code`` 对齐
+    0.7 §2.3 的原因码命名（``NOT_FOLLOWING_SERVICE_ACCOUNT`` / ``SMS_BUDGET_EXHAUSTED`` /
+    ``TIMEOUT_UNKNOWN`` / ``CHANNEL_NOT_CONFIGURED`` …）。
+    """
+
+    def __init__(self, reason_code: str = "", message: str = "") -> None:
+        super().__init__(message or reason_code or "channel skipped")
+        self.reason_code = reason_code
 
 
 _channels: dict[str, ChannelAdapter] = {}
@@ -190,11 +206,18 @@ def _retry_delay_seconds(attempts: int) -> int:
 
 
 async def _dispatch(db: AsyncSession, notification: Notification) -> None:
-    """在已开启的事务里，把一条通知按状态机推进一档。"""
+    """在已开启的事务里，把一条通知按状态机推进一档。
+
+    6.3 起 ``channels`` 是**有序降级链**：按序逐个尝试，第一个真正送达（``send`` 正常
+    返回）的通道即停，后续通道不再执行；通道主动 ``raise ChannelSkipped`` 表示本级永久
+    不可用，继续下一个通道；抛其他异常 = 临时失败，本轮打住等重试（重试仍从链头按序，
+    已成功的不重发）。
+    """
 
     succeeded = list(notification.succeeded_channels or [])
     remaining = [channel for channel in notification.channels if channel not in succeeded]
     last_error: str | None = None
+    delivered = False
 
     for channel in remaining:
         adapter = get_channel(channel)
@@ -211,15 +234,34 @@ async def _dispatch(db: AsyncSession, notification: Notification) -> None:
                 )
             )
             succeeded.append(channel)
-        except Exception as exc:  # noqa: BLE001 — 任何通道失败都转成状态机推进，不冒泡
+            delivered = True
+            break  # 第一个成功即停，后续通道不再执行
+        except ChannelSkipped as skip:
+            logger.info(
+                "channel_skipped",
+                extra={
+                    "extra_fields": {
+                        "dedupe_key": notification.dedupe_key,
+                        "channel": channel,
+                        "reason": skip.reason_code,
+                    }
+                },
+            )
+            continue  # 永久跳过，试下一个通道
+        except Exception as exc:  # noqa: BLE001 — 任何临时失败都转成状态机推进，不冒泡
             last_error = str(exc)
             break  # 本轮不再发剩余通道，等下次重试
 
     now = datetime.now(BUSINESS_TZ)
     notification.succeeded_channels = succeeded
     notification.updated_at = now
-    if last_error is None:
+    if delivered:
         notification.status = STATUS_SUCCEEDED
+        return
+
+    if last_error is None:
+        # 所有通道都被永久跳过、没有一个真正送达 → 0.7 的 NO_CHANNEL_AVAILABLE，终态。
+        notification.status = STATUS_EXHAUSTED
         return
 
     notification.attempts += 1
