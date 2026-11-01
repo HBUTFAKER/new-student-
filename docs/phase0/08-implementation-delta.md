@@ -8,11 +8,52 @@
 > - 发令部：读 §0 最新一块 + §4 已锁定约定，再出指令。别只看 01~07 原文，那是基线，不是现状。
 > - 开发：动表结构、动既有测试、动已上线接口前，先读 §1 与 §2。
 
-当前状态：**阶段 3 收官（3.5 完成）**，Alembic head = `0011_subscribe_auth_quota`，全库 26 张表（业务层 19 张）。**阶段 4 收官**：4.1 前端骨架 + 4.2 档案与班级管理页 + 4.3 排课日历与拖拽调课 + 4.4 上（三个只读报表接口）+ 4.4 下（报表前端页）全部完成。4.4 上是阶段 4 唯一动后端的部分：零迁移、零新表。**阶段 5 进行中**：5.1 家长端小程序骨架 + 登录 + 请求封装、5.2 邀请码绑定 + 多孩子切换 + 管理端发码入口、5.3 课表/余额/扣课明细（三个 `/me` 只读接口 + 小程序三页 + 首页改工作台）、5.4 订阅授权收集（迁移 `0011` 给 `subscribe_auth` 加 `available_count` / `updated_at` + 两个 `/me` 接口 + 小程序自动授权与「通知设置」页）均已完成。5.3 是阶段 5 首次动后端（零迁移）；5.4 是阶段 5 第二个动后端的步骤（**加列不加表**，表数仍 26）。5.5 站内信 / 红点兜底是阶段 5 收官步：**加第 27 张表 `in_app_message`**（业务层 20），写入只挂签到扣课一个钩子，配三个 `/me` 读接口与小程序消息页 + 首页红点。另有 **5.4 补丁** `9a6ebd9`：修单次加课并发占位死锁（`40P01` → 409，越界改了排课写路径，可单独 revert）。
+当前状态：**阶段 3 收官（3.5 完成）**，Alembic head = `0011_subscribe_auth_quota`，全库 26 张表（业务层 19 张）。**阶段 4 收官**：4.1 前端骨架 + 4.2 档案与班级管理页 + 4.3 排课日历与拖拽调课 + 4.4 上（三个只读报表接口）+ 4.4 下（报表前端页）全部完成。4.4 上是阶段 4 唯一动后端的部分：零迁移、零新表。**阶段 5 进行中**：5.1 家长端小程序骨架 + 登录 + 请求封装、5.2 邀请码绑定 + 多孩子切换 + 管理端发码入口、5.3 课表/余额/扣课明细（三个 `/me` 只读接口 + 小程序三页 + 首页改工作台）、5.4 订阅授权收集（迁移 `0011` 给 `subscribe_auth` 加 `available_count` / `updated_at` + 两个 `/me` 接口 + 小程序自动授权与「通知设置」页）均已完成。5.3 是阶段 5 首次动后端（零迁移）；5.4 是阶段 5 第二个动后端的步骤（**加列不加表**，表数仍 26）。5.5 站内信 / 红点兜底是阶段 5 收官步：**加第 27 张表 `in_app_message`**（业务层 20），写入只挂签到扣课一个钩子，配三个 `/me` 读接口与小程序消息页 + 首页红点。**阶段 6 开篇（6.1 通知中心引擎）已完成**：加第 28 张表 `notification`（业务层 21），只做机制（幂等入队 + 状态机 + 重试 + worker + 通道适配器），不接具体业务事件。另有 **5.4 补丁** `9a6ebd9`：修单次加课并发占位死锁（`40P01` → 409，越界改了排课写路径，可单独 revert）。
 
 ---
 
 ## §0 交接区（最新在最上面）
+
+### [6.1] 2026-11-01 23:50 · commit `680b4e0`（后端，阶段 6 开篇，只做引擎不接事件）
+
+**我改了什么**
+
+后端（**新增第 28 张表**，业务层 21）
+
+1. 迁移 `0013_notification`：`notification` 一张表。
+   - 字段：`id` / `tenant_id` / `event_type`(64) / `dedupe_key`(255, **全局 UNIQUE**) / `payload`(JSONB) / `channels`(TEXT[]) / `status`(16) / `attempts` / `max_attempts` / `next_retry_at` / `last_error`(TEXT) / `succeeded_channels`(TEXT[]) / `created_at` / `updated_at`。
+   - 索引：`(status, next_retry_at)` 给 worker 扫描。**这条不从 tenant_id 起**（跨租户队列索引），是「复合索引从 tenant_id 起」这条红线的一处**登记例外**（`test_business_table_indexes_start_with_tenant_id` 加 `WORKER_QUEUE_INDEXES` 白名单）。
+   - RLS + app_user 授权照 `0008`/`0012` 抄。表数 27 → **28**、业务层 20 → **21**。
+   - `updated_at` 是**第 3 张带它的表**（`org_config` / `subscribe_auth` / `notification`），`test_no_table_has_updated_at` 已登记。
+2. `app/services/notification_center.py`：
+   - `enqueue_notification(...)`：`INSERT ... ON CONFLICT (dedupe_key) DO NOTHING`，同事件重复入队静默忽略。
+   - 通道适配器 `Protocol`（`async def send(ctx) -> None`，抛异常 = 该通道失败）+ `register_channel(name, adapter)` 注册表。本步只注册 `in_app`。
+   - `in_app` 通道：从 `payload` 读 `parent_ids/title/body/source_type/source_id`，写 `in_app_message`（幂等键同构），**按家长逐个 SAVEPOINT，单家长失败只回滚该家长、通道整体不算失败**。
+   - `process_pending_notifications(db_factory, batch_size=50)`：`FOR UPDATE SKIP LOCKED` 抢行 + 三态状态机（`pending → succeeded` / `pending → exhausted`），失败指数退避 30s / 2min / 8min，`succeeded_channels` 保证部分成功不重发。
+   - `run_notification_worker(db_factory, interval_seconds, stop_event)`：进程内轮询循环，异常不退出。
+3. `app/main.py` lifespan：`notification_worker_enabled`（默认开）时 `asyncio.create_task` 起 worker，用 **owner/superuser 连接**（`migration_database_url`）绕 RLS 跨租户扫描；关闭时 `stop_event` + cancel 优雅退出。`app/core/config.py` 加两个开关（`notification_worker_enabled` / `notification_worker_interval_seconds` 默认 30）。
+4. `tests/test_notification_center.py` 9 项真库：幂等 / 成功路径 / 失败重试至 exhausted / 重试后成功不重复发 / 部分通道成功跳过重发 / 并发 SKIP LOCKED 不重复处理 / in-app 单家长失败容错 / worker 循环处理 + 停止 / lifespan 开关关闭不启动。
+
+**验证（本地实跑）**
+
+- 全新库 `python -m pytest -q`（`RUN_DB_TESTS=1` + `alembic upgrade head` 到 `0013`）：**310 passed**（原 296 + 新增 9 项 + 表数 27→28 让「每张表都有 RLS / tenant_id / UUID PK / created_at / 命名」参数化多 5 项）。
+- `ruff check .` + `ruff format --check .` 全过。
+- 迁移实跑 `alembic upgrade head` 到 `0013_notification`，唯一键、`(status, next_retry_at)` 索引、RLS FORCE、app_user 授权都在。
+- `web/`、`miniprogram/` 一行未动（本步是纯后端引擎）。
+
+**必须跟着改的地方（6.2 / 6.4 全靠这几条）**
+
+1. **dedupe_key 约定（事件接入必读）**：它是**全局唯一**，是「同一事件不重复发」的根。6.2/6.4 接入事件时，用「能全局唯一标识一个业务事件」的稳定键，推荐 `f"{event_type}:{source_id}"`（`source_id` 是业务事件主键 UUID，`gen_random_uuid()` 天然全局唯一）；如果 `source_id` 不是 UUID（比如课程编号），**必须把 `tenant_id` 拼进去**，否则跨租户撞唯一键把两家机构的事件误吞。**禁止**把时间戳、随机数这类会变的字段拼进 dedupe_key——那会让重试变成「新事件」。
+2. **6.2 接微信订阅通道**：`register_channel("wechat_subscribe", WechatSubscribeChannel())`，adapter 实现 `async def send(ctx)` 抛异常 = 失败；从 `ctx.payload` 读参数，`available_count` 扣减在通道内做（别在入队时扣）。`in_app` 已注册，别重复注册。发送结果要能区分「永久失败（不重试）」和「临时失败（重试）」——永久失败建议通道内直接吞掉（不抛），临时失败才抛。
+3. **6.4 接管调度时关内置循环**：设 `NOTIFICATION_WORKER_ENABLED=0` 关掉 lifespan 的轮询；调度器直接反复调 `process_pending_notifications(db_factory)`，它是幂等的、可被任意调度器反复调用。**别删函数**，删了 6.4 没得接。
+4. **in_app 通道的单家长容错语义**：单家长插入失败（比如家长已删除、FK 违规）只回滚该家长、其余照发、通道整体成功。6.2 加微信通道时**不要**把这种「个别收件人失败」当成通道失败去重试——那只会反复重发已成功的家长。个别收件人失败留给 6.4 的补偿/对账，不进重试状态机。
+5. **`exhausted` 是终态**：worker 永不重扫；漏发补偿是 6.4 的事，别在本表加「重新入队」逻辑。
+
+**给发令部的指令**
+
+- 阶段 6 开篇：本步只交付**引擎**，零业务事件接入、零对外 HTTP 接口。清单 6.1 两条验收「同一事件不重复发」「失败自动重试 3 次」都已落地并有真库测试。
+- 遗留待决策：① worker 只在**单实例**下安全（多实例要分布式锁，6.4 一起办）；② in-app 通道里「单家长永久失败」目前只记日志不落任何对账标记，6.4 要做漏发补偿得另想口径；③ `dedupe_key` 全局唯一 + `last_error` 只存最近一次，历史失败明细不留（够用）。
+- 6.2 建议：微信订阅通道 + 从 `subscribe_auth` 扣 `available_count` + 模板选择（`config.wechat_subscribe_templates` 的 `scene` 字段）一起做；6.4 建议：定时任务基础设施 + 事件接入（上课提醒/余额不足/课表变动）+ 接管 worker 调度。
 
 ### [5.5] 2026-11-01 13:30 · commit `cc7eee8`（后端）+ `391c692`（小程序），已推送；CI `41277395020` 四 job 全绿（首次即过）
 
@@ -824,3 +865,4 @@ POST /me/subscribe-auths
 | 5.4 | `ea4070e` | 订阅授权收集（只收不发）：迁移 `0011` 给 `subscribe_auth` 加 `available_count`（accept 累加、reject/ban 不清零）+ `updated_at`；`GET /me/subscribe-templates`（后端配置下发、小程序不硬编码）、`POST /me/subscribe-auths`（`wechat_user_id` 只认 token、未知模板整批 422、`ON CONFLICT` 原子 upsert）；新闸门 `parent_tenant_session`（机构级，不要求选孩子）；小程序 `utils/subscribe.js` 纯逻辑 18 项 + 首页自动收集 + 「通知设置」页手动重授权。加列不加表，表数仍 26 |
 | 5.4 补丁 | `9a6ebd9` | **越界改排课写路径**：`create_lesson` 的 INSERT 包 SAVEPOINT + 按 sqlstate 分流，`except` 从 `IntegrityError` 放宽到 `DBAPIError`（死锁原来是裸 `DBAPIError`，500 顶掉 409），`40P01/40001` 重试 ≤3 次后稳定落 `23P01`→409；重试路径补查 `find_conflicts` 保住 `detail.conflicts`。修 CI 必现红 |
 | 5.5 | `cc7eee8` | 站内信 / 红点兜底（阶段 5 收官）：**新增第 27 张表 `in_app_message`**（业务层 20），唯一键 `(source_type, source_id, parent_id)`；唯一写路径 = 签到扣课成功后同事务插入，外面再包 SAVEPOINT，失败放行；三个机构级读接口 `GET /me/notifications`、`/unread-count`、`POST /me/notifications/read`；小程序 `utils/messages.js` 11 项 + 消息页 + 首页红点。`read_at` 不是 updated_at，`test_no_table_has_updated_at` 未动 |
+| 6.1 | `680b4e0` | 通知中心引擎（阶段 6 开篇，只做机制不接事件）：**新增第 28 张表 `notification`**（业务层 21），`dedupe_key` 全局唯一 + 入队 `ON CONFLICT DO NOTHING`；通道适配器 Protocol + `register_channel`，本步只注册 `in_app`（写 `in_app_message` 幂等键同构、按家长 SAVEPOINT）；`process_pending_notifications` 三态状态机 + `FOR UPDATE SKIP LOCKED` + 指数退避 30s/2min/8min + `succeeded_channels` 部分成功不重发；lifespan 起进程内 worker（owner 连接绕 RLS，env 开关可关）；`updated_at` 是第 3 张带它的表、`(status,next_retry_at)` 索引是不从 tenant_id 起的登记例外。测试 9 项真库 |

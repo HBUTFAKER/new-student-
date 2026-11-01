@@ -397,6 +397,19 @@
 - **说明**：写入只有「签到扣课」一个事件源（`source_type=attendance`、`source_id=attendance.id`）；
   发送类能力（上课提醒、群发）仍在二期。
 
+### 9.7 通知中心引擎（清单 6.1 验收、6.1 实现）
+
+**内部机制，无对外 HTTP 接口**。只交付引擎：一张 `notification` 表 + 幂等入队
+`enqueue_notification` + 状态机 + 带重试的 worker + 通道适配器接口，不接具体业务事件
+（上课提醒/扣课提醒由 6.2 微信通道、6.4 定时任务接入）。
+
+- 幂等：`dedupe_key` 全局唯一 + 入队 `ON CONFLICT DO NOTHING` —— 同一事件不重复发。
+- 状态机：`pending → succeeded`（全通道成功）/ `pending → exhausted`（重试 3 次用尽，终态不重扫）。
+- 重试：失败指数退避 30s / 2min / 8min；`succeeded_channels` 保证部分成功不重发已成功的通道。
+- 通道：`in_app` 本步真实可用（写 §9.6 的 `in_app_message`，幂等键同构）；微信订阅通道 6.2 接入。
+- worker：进程内轮询（lifespan 启动、`NOTIFICATION_WORKER_ENABLED=0` 关闭），6.4 定时任务接管。
+- 并发：`FOR UPDATE SKIP LOCKED`，单实例部署安全；多实例要分布式锁（6.4 评估）。
+
 ## 10. 机构配置模块
 
 ### 10.1 员工账号与角色（US-301）
@@ -415,7 +428,7 @@
 - 家长端：`PATCH /me/profile`（自助改联系方式）、`GET /me/feedbacks`（课堂反馈）、`POST /me/leave-requests`（请假）、`GET /me/leave-requests`（请假/补课记录）、`POST /orders` + `POST /orders/{id}/pay`（在线支付）
 - 老师端：`POST /lesson-feedbacks`、`POST /teacher-leave-requests`（请假/调课申请）、`GET /students/{id}/feedbacks`（历史反馈）、`GET /teachers/me/free-slots`（空闲时段）、`POST /makeup-lessons`（补课排期）
 - 教务端：`POST /refunds`（退费）、`POST /refunds/{id}/approve`（审批）、`GET /reports/renewal-warnings`（续费预警）、`GET /reports/attendance-summary`（日报月报）、`POST /notifications/broadcast`（群发）、`POST /lessons/{id}/qr-checkin`（二维码签到）
-- 消息：发送上课提醒/扣课通知（内部任务）—— **读侧（列表 / 未读数 / 已读）已随 5.5 提前到一期，见 §9.6**；`POST /notifications/subscribe` 已由 5.4 的 `GET /me/subscribe-templates` + `POST /me/subscribe-auths` 取代（作废）
+- 消息：发送上课提醒/扣课通知（内部任务）—— **读侧（列表 / 未读数 / 已读）已随 5.5 提前到一期，见 §9.6**；**通知中心引擎（表 + 状态机 + 幂等 + 重试）已随 6.1 落地，见 §9.7**；`POST /notifications/subscribe` 已由 5.4 的 `GET /me/subscribe-templates` + `POST /me/subscribe-auths` 取代（作废）
 - 管理员端：`GET /reports/operations`（经营报表）、`GET /audit-logs`（审计日志）、`PATCH /org-config`（机构信息/通知模板）、`POST /campuses`（多校区）、候补名单相关
 - 平台侧：`POST /platform/tenants`（自助开通）、`GET /platform/tenants`、`GET /platform/usage`、`POST /platform/plans`、`POST /platform/tenants/{id}/service-account-auth`（机构服务号授权）、`GET /platform/dashboard`
   - **注**：`POST /platform/tenants` 的基础开通能力（建租户 + 默认套餐 + 机构配置 + 首个管理员，单事务、同名 409）已于 1.5 落地，仅限内部平台管理员调用；商业化（套餐变更、用量计费、自助注册流程）仍在二期。

@@ -90,7 +90,7 @@
 
 ---
 
-## 业务层（20 张，均含 tenant_id）
+## 业务层（21 张，均含 tenant_id）
 
 ### student（学生）｜档案｜一期
 索引：`(tenant_id, status)`、`(tenant_id, name)`。
@@ -305,9 +305,9 @@
 
 ---
 
-## 表清单与交付对照（27 张）
+## 表清单与交付对照（28 张）
 
-> 本文原为 25 张（业务层 18）。`tenant_holiday` 为 3.2 实现时追加，`in_app_message` 为 5.5 实现时追加，故现为 27 张、业务层 20 张。
+> 本文原为 25 张（业务层 18）。`tenant_holiday` 为 3.2 实现时追加，`in_app_message` 为 5.5 实现时追加，`notification` 为 6.1 实现时追加，故现为 28 张、业务层 21 张。
 > 实现与本文的偏离一律记在 `08-implementation-delta.md`，改表前先看那份。
 
 | 层 | 表 | 一期 | 二期 |
@@ -320,6 +320,7 @@
 | 业务层 | invite_code（1.6 追加，家长自助绑定凭证） | ✓ | |
 | 业务层 | tenant_holiday（3.2 追加，机构节假日） | ✓ | |
 | 业务层 | in_app_message（5.5 追加，家长站内信 / 红点兜底） | ✓ | |
+| 业务层 | notification（6.1 追加，通知中心引擎） | ✓ | |
 | 业务层 | refund | | ✓ |
 
 ### `invite_code`（0.4 遗漏、1.6 追加）
@@ -374,4 +375,32 @@
 > 写入一律 `INSERT ... ON CONFLICT DO NOTHING`，不做「先查后写」。
 > 列表索引：`(tenant_id, parent_id, created_at DESC)`。
 
-> 自检：业务层 20 张表全部含 tenant_id 且复合索引从 tenant_id 起；lesson_ledger 只增无余额列、consume 流水必挂 purchase_id 与 lesson_id；attendance 唯一键保证幂等；balance_snapshot 已移除；字段与 ER 图一一对应，无悬空表/字段。
+### `notification`（6.1 追加）
+
+通知中心引擎：一条待发/待重试的出站通知。只做机制（入队 + 状态机 + 重试 + 通道分发），
+不接具体业务事件（6.2 微信通道、6.4 定时任务接入）。`in_app` 通道发送成功后写
+`in_app_message`（幂等键同构），是引擎的产物而非引擎本身。
+
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | UUID | PK 默认 gen_random_uuid() | |
+| tenant_id | UUID | NOT NULL FK→tenant.id | 机构维度 |
+| event_type | VARCHAR(64) | NOT NULL | 事件类型，如 `lesson_remind` |
+| dedupe_key | VARCHAR(255) | NOT NULL **UNIQUE** | 事件幂等的根，全局唯一 |
+| payload | JSONB | NOT NULL 默认 `{}` | 事件参数，通道各自解读 |
+| channels | TEXT[] | NOT NULL 默认 `{}` | 要发的通道，如 `{in_app, wechat_subscribe}` |
+| status | VARCHAR(16) | NOT NULL 默认 `pending` | `pending / succeeded / exhausted` 三态 |
+| attempts | INTEGER | NOT NULL 默认 0 | 已尝试次数 |
+| max_attempts | INTEGER | NOT NULL 默认 3 | 重试上限 |
+| next_retry_at | TIMESTAMPTZ | NOT NULL 默认 now() | 下次可试时间，指数退避 30s/2min/8min |
+| last_error | TEXT | 可空 | 最近一次失败原因（截断 2000 字） |
+| succeeded_channels | TEXT[] | 可空 | 已成功通道，重试只发剩余 |
+| created_at | TIMESTAMPTZ | NOT NULL 默认 now() | |
+| updated_at | TIMESTAMPTZ | 可空 | 重试时间追踪（第 3 张带它的表） |
+
+> 状态机：`pending → succeeded`（全通道成功）或 `pending → exhausted`（重试用尽，终态不重扫）。
+> 失败不单独存一态，失败后仍 `pending`、`attempts + 1`、`next_retry_at` 后移。
+> `dedupe_key` 唯一 + 入队 `ON CONFLICT DO NOTHING` 是「同一事件不重复发」的第一道防线。
+> worker 队列索引 `(status, next_retry_at)` 是跨租户的平台级索引，不从 tenant_id 起（见自检段例外）。
+
+> 自检：业务层 21 张表全部含 tenant_id；除 `notification` 的 worker 队列索引 `(status, next_retry_at)`（跨租户平台级）外，复合索引均从 tenant_id 起；lesson_ledger 只增无余额列、consume 流水必挂 purchase_id 与 lesson_id；attendance 唯一键保证幂等；balance_snapshot 已移除；字段与 ER 图一一对应，无悬空表/字段。

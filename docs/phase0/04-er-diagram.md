@@ -3,7 +3,7 @@
 > 对应《学生信息管理系统_分步执行清单》步骤 0.4。
 > 技术栈：PostgreSQL + SQLAlchemy + Alembic。命名 snake_case、表名单数。
 > 配套字段字典：`04-data-dictionary.md`（外键/字段与本文一一对应）。
-> 三层共 27 张表：平台层 4、微信层 3、业务层 20（`invite_code` 为 1.6 实现时追加、`tenant_holiday` 为 3.2 实现时追加、`in_app_message` 为 5.5 实现时追加，见 `04-data-dictionary.md` 对应小节与 `08-implementation-delta.md`）。
+> 三层共 28 张表：平台层 4、微信层 3、业务层 21（`invite_code` 为 1.6 实现时追加、`tenant_holiday` 为 3.2 实现时追加、`in_app_message` 为 5.5 实现时追加、`notification` 为 6.1 实现时追加，见 `04-data-dictionary.md` 对应小节与 `08-implementation-delta.md`）。
 
 ## 全局约定（所有图通用）
 
@@ -87,7 +87,7 @@ erDiagram
 
 > `wechat_openid` 唯一约束 `(app_id, openid)`；`subscribe_auth` 为二期消息触达预留（US-006/403）。
 
-## 三、业务层（20 张，每张含 tenant_id）
+## 三、业务层（21 张，每张含 tenant_id）
 
 ```mermaid
 erDiagram
@@ -101,6 +101,7 @@ erDiagram
     parent ||--o{ parent_student : "绑定"
     parent ||--o{ in_app_message : "收信"
     student ||--o{ in_app_message : "关于"
+    tenant ||--o{ notification : "产生通知"
     student ||--o{ parent_student : "被绑定"
     wechat_user ||--o{ parent : "微信关联"
 
@@ -284,6 +285,22 @@ erDiagram
         TIMESTAMPTZ read_at "NULL=未读，不是 updated_at"
         TIMESTAMPTZ created_at
     }
+    notification {
+        UUID id PK
+        UUID tenant_id FK
+        VARCHAR event_type
+        VARCHAR dedupe_key UK "全局唯一，事件幂等根"
+        JSONB payload
+        TEXT[] channels "in_app / wechat_subscribe"
+        VARCHAR status "pending/succeeded/exhausted"
+        INTEGER attempts
+        INTEGER max_attempts
+        TIMESTAMPTZ next_retry_at "指数退避 30s/2min/8min"
+        TEXT last_error
+        TEXT[] succeeded_channels "重试只发剩余"
+        TIMESTAMPTZ updated_at
+        TIMESTAMPTZ created_at
+    }
     refund {
         UUID id PK
         UUID tenant_id FK
@@ -312,7 +329,7 @@ erDiagram
 
 | 红线 | 表结构落点 |
 |------|------------|
-| 红线一：业务表带 tenant_id、复合索引从 tenant_id 起 | 业务层 20 张表全部含 `tenant_id`，字典中复合索引均以 `tenant_id` 前缀 |
+| 红线一：业务表带 tenant_id、复合索引从 tenant_id 起 | 业务层 21 张表全部含 `tenant_id`；除 `notification` 的 worker 队列索引 `(status, next_retry_at)`（跨租户平台级）外，复合索引均以 `tenant_id` 前缀 |
 | 红线二：余额只能由流水变更 | `lesson_ledger` 只增（无 updated_at、无余额列）；余额 = `SUM(delta)` 实时计算，不引入快照表；consume 流水必须挂 `purchase_id`（扣哪个包）与 `lesson_id`（哪次课） |
 | 红线三：签到扣课同事务且幂等 | `attendance` 唯一约束 `(lesson_id, student_id)`，重复签到被唯一键拒绝；扣课与签到在同一事务 |
 
