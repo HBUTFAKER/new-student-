@@ -426,6 +426,27 @@
   openid 无效、40037 模板无效、41030 页面非法）→ 不重试，直接写 §9.6 的站内信兜底；临时失败
   → 原子退还额度 + 进重试状态机。long_term 不扣额度，有 `authorized` 授权即可发。
 
+### 9.9 服务号 + 短信通道（降级链 + 短信日预算，清单 6.3 验收、6.3 实现）
+
+**通道是内部机制，不直接暴露 HTTP**。6.3 把 6.1 引擎的 `channels` 数组语义从「全部尝试」
+改为「**有序降级链**」：按序逐个尝试，第一个真正送达的通道即停；通道主动 `raise
+ChannelSkipped`（永久不可用）→ 继续下一级；抛其他异常（临时失败）→ 走 6.1 重试。全部
+通道都被永久跳过 → `exhausted`（0.7 的 `NO_CHANNEL_AVAILABLE` 终态）。
+
+- `wechat_mp`（服务号模板消息）：未关注（43004）/ 无 openid / 机构未配置服务号（env 无
+  `WECHAT_MP_APP_ID`）→ 跳过本级继续下一级；超时 → `TIMEOUT_UNKNOWN` 跳过不重试；临时失败
+  → 重试。
+- `sms`（短信）：无手机号 / 未配置供应商（`SMS_PROVIDER` 空）→ 跳过；**日预算**：发送前统计
+  当日该租户 `'sms' = ANY(succeeded_channels)` 的条数，达到 `org_config.sms_daily_budget`
+  （默认 50）→ 跳过本级（日志 `sms_budget_exhausted`）；超时 → `TIMEOUT_UNKNOWN`。
+- 唯一对外入口是管理端用量查询：
+
+`GET /admin/sms-usage` — **机构管理员/教务**（`admin`/`registrar`）。
+
+- **响应 200**：`{ "used": 2, "budget": 50, "remaining": 48 }`（当日该租户短信已发 / 预算 / 剩余）
+- **可选** `?tenant_id=uuid`：省略 = 当前机构；显式传且与当前机构不一致 → 404 `TENANT_NOT_FOUND`
+- **错误**：老师 / 家长 403 `OUT_OF_SCOPE`
+
 ## 10. 机构配置模块
 
 ### 10.1 员工账号与角色（US-301）
