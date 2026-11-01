@@ -15,6 +15,7 @@
   所以购课后可以对该学生单独重提，已成功的别人不会被重扣。
 """
 
+import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -30,6 +31,7 @@ from app.models.attendance import Attendance
 from app.models.course import Class
 from app.models.schedule import Lesson
 from app.services.ledger import BUSINESS_TZ, deduct_lessons
+from app.services.notification import record_lesson_deduct
 from app.services.org_config import get_absence_rule
 
 # 缺勤/请假才算"缺"，present 与 makeup 都不构成补课前提。
@@ -39,6 +41,8 @@ ABSENT_STATUSES = frozenset({"absent", "leave"})
 FINAL_STATUSES = frozenset({"present", "leave", "absent"})
 
 UNIQUE_VIOLATION = "23505"
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,6 +181,36 @@ async def _check_in_one(
     raise AppError(409, "CHECKIN_CONFLICT", "签到并发冲突，请重试")
 
 
+async def _notify_deduct(
+    db: AsyncSession,
+    *,
+    tenant_id: UUID,
+    student_id: UUID,
+    attendance_id: UUID,
+    count: int,
+) -> None:
+    """扣课成功后的站内信（5.5）。失败只记日志，绝不放倒签到。
+
+    再包一层 SAVEPOINT：插入炸了只回滚这一段，attendance 行和扣课流水都还在。
+    幂等由 ``in_app_message`` 的唯一键兜住，重试/并发最多留一条。
+    """
+
+    try:
+        async with db.begin_nested():
+            await record_lesson_deduct(
+                db,
+                tenant_id=tenant_id,
+                student_id=student_id,
+                attendance_id=attendance_id,
+                count=count,
+            )
+    except Exception:
+        logger.exception(
+            "in_app_message_insert_failed",
+            extra={"extra_fields": {"attendance_id": str(attendance_id)}},
+        )
+
+
 async def _insert_seat(
     db: AsyncSession,
     *,
@@ -191,16 +225,15 @@ async def _insert_seat(
 
     try:
         async with db.begin_nested():
-            db.add(
-                Attendance(
-                    tenant_id=tenant_id,
-                    lesson_id=lesson_id,
-                    student_id=student_id,
-                    status=status,
-                    deduct_lessons=deduct_count,
-                    operator_id=operator_id,
-                )
+            seat = Attendance(
+                tenant_id=tenant_id,
+                lesson_id=lesson_id,
+                student_id=student_id,
+                status=status,
+                deduct_lessons=deduct_count,
+                operator_id=operator_id,
             )
+            db.add(seat)
             try:
                 await db.flush()
             except IntegrityError as exc:
@@ -215,6 +248,13 @@ async def _insert_seat(
                     lesson_id=lesson_id,
                     count=deduct_count,
                     operator_id=operator_id,
+                )
+                await _notify_deduct(
+                    db,
+                    tenant_id=tenant_id,
+                    student_id=student_id,
+                    attendance_id=seat.id,
+                    count=deduct_count,
                 )
             return CheckInResult(
                 student_id=student_id,

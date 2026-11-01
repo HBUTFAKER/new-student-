@@ -138,3 +138,35 @@ class SubscribeAuthItem(BaseModel):
 class SubscribeAuthResponse(BaseModel):
     items: list[SubscribeAuthItem]
     total: int
+
+
+class MeNotificationItem(BaseModel):
+    """§11 站内信行（5.5）。家长只看这七列，不暴露 source/tenant。"""
+
+    id: UUID
+    type: str
+    title: str
+    body: str
+    student_id: UUID | None
+    read: bool
+    created_at: datetime
+
+
+class MeNotificationList(BaseModel):
+    items: list[MeNotificationItem]
+    total: int
+    unread: int
+
+
+class MeUnreadCount(BaseModel):
+    unread: int
+
+
+class MeReadRequest(BaseModel):
+    """``ids`` 为空数组 = 这个家长的全部未读（不是「什么都不做」）。"""
+
+    ids: list[UUID] = Field(default_factory=list, max_length=200)
+
+
+class MeReadResponse(BaseModel):
+    marked: int

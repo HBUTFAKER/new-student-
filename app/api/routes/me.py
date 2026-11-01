@@ -24,10 +24,15 @@ from app.schemas.me import (
     MeBindingResponse,
     MeLedgerItem,
     MeLedgerResponse,
+    MeNotificationItem,
+    MeNotificationList,
+    MeReadRequest,
+    MeReadResponse,
     MeScheduleItem,
     MeScheduleResponse,
     MeStudentItem,
     MeStudentList,
+    MeUnreadCount,
     SubscribeAuthItem,
     SubscribeAuthRequest,
     SubscribeAuthResponse,
@@ -36,6 +41,12 @@ from app.schemas.me import (
 )
 from app.services.auth import switch_active_student, wechat_bindings
 from app.services.bindings import redeem_invite_code
+from app.services.notification import (
+    mark_read,
+    message_page,
+    parents_of_wechat_user,
+    unread_count,
+)
 from app.services.portal import (
     child_balance,
     child_ledger,
@@ -50,6 +61,7 @@ FromQuery = Annotated[datetime, Query(alias="from", description="窗口起点，
 ToQuery = Annotated[datetime, Query(alias="to", description="窗口终点，不含，ISO 8601 带时区")]
 Page = Annotated[int, Query(ge=1)]
 PageSize = Annotated[int, Query(ge=1, le=100)]
+NotificationPageSize = Annotated[int, Query(ge=1, le=50, description="每页条数，默认 20")]
 
 
 @router.post(
@@ -337,3 +349,76 @@ async def save_subscribe_auths(
         ],
         total=len(outcomes),
     )
+
+
+async def _my_parent_ids(db, principal: Principal) -> list[UUID]:
+    """当前机构 + 当前微信身份对应的 ``parent`` 行。
+
+    ``parent_tenant_session`` 已保证机构在绑定集合里，这里只把身份落到业务主键上：
+    消息按 ``parent_id`` 存，读侧必须走同一把钥匙，body / query 里的任何家长标识都不认。
+    """
+
+    wechat_user_id = principal.subject_id
+    if wechat_user_id is None:
+        raise AppError(403, "OUT_OF_SCOPE", "仅家长可访问")
+    parent_ids = await parents_of_wechat_user(db, wechat_user_id)
+    if not parent_ids:
+        # 机构在绑定集合里但没有对应 parent 行：数据不完整，按越权处理，别返回空列表。
+        raise AppError(403, "OUT_OF_SCOPE", "仅家长可访问")
+    return parent_ids
+
+
+@router.get("/notifications", response_model=MeNotificationList, summary="站内信列表")
+async def my_notifications(
+    db: ParentTenantSession,
+    principal: CurrentPrincipal,
+    page: Page = 1,
+    page_size: NotificationPageSize = 20,
+) -> MeNotificationList:
+    """5.5：按 ``created_at`` 倒序，``unread`` 与列表同源，红点不用再算一遍。"""
+
+    parent_ids = await _my_parent_ids(db, principal)
+    rows, total, unread = await message_page(
+        db, parent_ids=parent_ids, page=page, page_size=page_size
+    )
+    return MeNotificationList(
+        items=[
+            MeNotificationItem(
+                id=row.id,
+                type=row.type,
+                title=row.title,
+                body=row.body,
+                student_id=row.student_id,
+                read=row.read_at is not None,
+                created_at=row.created_at,
+            )
+            for row in rows
+        ],
+        total=total,
+        unread=unread,
+    )
+
+
+@router.get(
+    "/notifications/unread-count",
+    response_model=MeUnreadCount,
+    summary="未读数（红点）",
+)
+async def my_unread_count(db: ParentTenantSession, principal: CurrentPrincipal) -> MeUnreadCount:
+    """轻量：只 count，不 join 不取行；首页 onShow 每次拉一下够用，不做轮询。"""
+
+    parent_ids = await _my_parent_ids(db, principal)
+    return MeUnreadCount(unread=await unread_count(db, parent_ids=parent_ids))
+
+
+@router.post("/notifications/read", response_model=MeReadResponse, summary="标记已读")
+async def mark_notifications_read(
+    payload: MeReadRequest,
+    db: ParentTenantSession,
+    principal: CurrentPrincipal,
+) -> MeReadResponse:
+    """``ids`` 为空 = 全部已读；跨家长 / 跨租户的 id 整批 404，不落任何更新。"""
+
+    parent_ids = await _my_parent_ids(db, principal)
+    marked = await mark_read(db, parent_ids=parent_ids, ids=payload.ids)
+    return MeReadResponse(marked=marked)
