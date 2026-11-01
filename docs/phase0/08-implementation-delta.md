@@ -8,11 +8,52 @@
 > - 发令部：读 §0 最新一块 + §4 已锁定约定，再出指令。别只看 01~07 原文，那是基线，不是现状。
 > - 开发：动表结构、动既有测试、动已上线接口前，先读 §1 与 §2。
 
-当前状态：**阶段 3 收官（3.5 完成）**，Alembic head = `0011_subscribe_auth_quota`，全库 26 张表（业务层 19 张）。**阶段 4 收官**：4.1 前端骨架 + 4.2 档案与班级管理页 + 4.3 排课日历与拖拽调课 + 4.4 上（三个只读报表接口）+ 4.4 下（报表前端页）全部完成。4.4 上是阶段 4 唯一动后端的部分：零迁移、零新表。**阶段 5 进行中**：5.1 家长端小程序骨架 + 登录 + 请求封装、5.2 邀请码绑定 + 多孩子切换 + 管理端发码入口、5.3 课表/余额/扣课明细（三个 `/me` 只读接口 + 小程序三页 + 首页改工作台）、5.4 订阅授权收集（迁移 `0011` 给 `subscribe_auth` 加 `available_count` / `updated_at` + 两个 `/me` 接口 + 小程序自动授权与「通知设置」页）均已完成。5.3 是阶段 5 首次动后端（零迁移）；5.4 是阶段 5 第二个动后端的步骤（**加列不加表**，表数仍 26）。5.5 站内信 / 红点兜底是阶段 5 收官步：**加第 27 张表 `in_app_message`**（业务层 20），写入只挂签到扣课一个钩子，配三个 `/me` 读接口与小程序消息页 + 首页红点。**阶段 6 开篇（6.1 通知中心引擎）已完成**：加第 28 张表 `notification`（业务层 21），只做机制（幂等入队 + 状态机 + 重试 + worker + 通道适配器），不接具体业务事件。**6.2 微信订阅通道已完成**：`register_channel("wechat_subscribe", …)` 接到 6.1 引擎上，原子扣额度 + 降级 + 管理端测试接口，**零迁移、表数不变（28 / 业务 21）**。**6.3 服务号 + 短信通道已完成**：`channels` 数组从「全部尝试」改成「有序降级链、第一个成功即停」，新增 `wechat_mp` / `sms` 两通道 + `org_config.sms_daily_budget` 短信日预算列（迁移 `0014`，**加列不加表**）+ 管理端当日用量查询。另有 **5.4 补丁** `9a6ebd9`：修单次加课并发占位死锁（`40P01` → 409，越界改了排课写路径，可单独 revert）。
+当前状态：**阶段 3 收官（3.5 完成）**，Alembic head = `0011_subscribe_auth_quota`，全库 26 张表（业务层 19 张）。**阶段 4 收官**：4.1 前端骨架 + 4.2 档案与班级管理页 + 4.3 排课日历与拖拽调课 + 4.4 上（三个只读报表接口）+ 4.4 下（报表前端页）全部完成。4.4 上是阶段 4 唯一动后端的部分：零迁移、零新表。**阶段 5 进行中**：5.1 家长端小程序骨架 + 登录 + 请求封装、5.2 邀请码绑定 + 多孩子切换 + 管理端发码入口、5.3 课表/余额/扣课明细（三个 `/me` 只读接口 + 小程序三页 + 首页改工作台）、5.4 订阅授权收集（迁移 `0011` 给 `subscribe_auth` 加 `available_count` / `updated_at` + 两个 `/me` 接口 + 小程序自动授权与「通知设置」页）均已完成。5.3 是阶段 5 首次动后端（零迁移）；5.4 是阶段 5 第二个动后端的步骤（**加列不加表**，表数仍 26）。5.5 站内信 / 红点兜底是阶段 5 收官步：**加第 27 张表 `in_app_message`**（业务层 20），写入只挂签到扣课一个钩子，配三个 `/me` 读接口与小程序消息页 + 首页红点。**阶段 6 开篇（6.1 通知中心引擎）已完成**：加第 28 张表 `notification`（业务层 21），只做机制（幂等入队 + 状态机 + 重试 + worker + 通道适配器），不接具体业务事件。**6.2 微信订阅通道已完成**：`register_channel("wechat_subscribe", …)` 接到 6.1 引擎上，原子扣额度 + 降级 + 管理端测试接口，**零迁移、表数不变（28 / 业务 21）**。**6.3 服务号 + 短信通道已完成**：`channels` 数组从「全部尝试」改成「有序降级链、第一个成功即停」，新增 `wechat_mp` / `sms` 两通道 + `org_config.sms_daily_budget` 短信日预算列（迁移 `0014`，**加列不加表**）+ 管理端当日用量查询。另有 **5.4 补丁** `9a6ebd9`：修单次加课并发占位死锁（`40P01` → 409，越界改了排课写路径，可单独 revert）。**6.4 定时任务 + 漏发补偿已完成（阶段 6 收官）**：自写 asyncio 调度器（不上 APScheduler/Celery）接管 6.1 worker（互斥），驱动上课提醒（提前 1 天 + 1 小时，`org_config.lesson_reminder_hours`）与余额预警（≤5 课时，`org_config.balance_alert_threshold`，0=关）两条业务事件；wechat_subscribe 改 `ChannelSkipped` 纳入完整降级链（订阅 → 服务号 → 短信 → 站内信）；夜间静默 22:00–08:00；`sms_daily_budget` 默认 50→200；迁移 `0015`（**加列不加表**，表数仍 28 / 业务 21）；`GET /admin/notifications/stats` + `POST /admin/notifications/{id}/retry` 两个管理端接口；1000 条模拟验收通过（950 成功 / 50 漏发→retry 全救回）。
 
 ---
 
 ## §0 交接区（最新在最上面）
+
+### [6.4] 2026-11-02 · 定时任务 + 漏发补偿（阶段 6 收官），尚未提交（本地验收通过，待 push）
+
+**我改了什么**
+
+后端（**加列不加表**，表数仍 28 / 业务层 21）
+
+1. `app/services/scheduler.py`（新）：自写 asyncio 定时循环，**不引 APScheduler / Celery / arq**。`_run_interval` 内层 while 循环，异常只记日志不退出；`run_scheduler` 用 `asyncio.gather` 并发跑三个任务——worker 循环（30s，调 `process_pending_notifications`，沿用 6.1 间隔）、上课提醒扫描（5min）、余额预警扫描（1h）。单实例、无分布式锁（多实例上锁是二期，见下）。
+2. `app/services/notification_events.py`（新）：两条业务事件的「扫描 → 按家长拆分 enqueue」。
+   - 上课提醒：两个时点提前 1 天（1440min）+ 提前 1 小时（60min），机构可配 `org_config.lesson_reminder_hours`（逗号分隔分钟数，空串=不发）。**时点窗口**：offset 从大到小排，第 `i` 个 offset 只在 `[start_at - offset_i, start_at - offset_{i+1})` 内入队（最小 offset 上界是 `start_at`）——「提前 1 天」一旦「提前 1 小时」到点就过期不补发，避免拖到课前才发；但某时点落在静默窗口、只要没被更小时点接管，静默结束下一轮仍捡起。dedupe_key 含 `offset`，两个时点是两条独立提醒。cancelled/moved 不发（`status='normal'` 过滤）。
+   - 余额预警：`SUM(delta) < org_config.balance_alert_threshold`（默认 5，0=关闭）的学生，**余额一律以 ledger 现算，禁止另算**；dedupe 口径 `balance_alert:{student_id}:{最近一条 consume 流水 id}`（无 consume 用 `init`）——每扣一课时 key 变化、可再提醒，两轮扫描之间不重复轰炸。
+   - 按家长拆分：一条业务事件产生 N 家长 → N 条 notification（dedupe_key 含 `parent_id`），消灭「某家长临时失败导致别人重收」。
+   - 夜间静默 22:00–08:00（+08:00）：`is_silent` 判小时，静默则不入队、下一轮自然捡起（dedupe 防重）。站内信不受静默限制（034 钩子同事务写入，本服务不碰）。
+3. `app/services/channels/wechat_subscribe.py`：把 6.2 的「通道内写站内信 = 成功」改成 `raise ChannelSkipped`（模板不存在 / 未绑 openid / 长期未授权 / 一次性额度耗尽 / 微信永久 errcode 全部 `ChannelSkipped`），站内信交给链尾 `in_app` 统一处理。**完整降级链 = `wechat_subscribe → wechat_mp → sms → in_app`**（`CHANNEL_CHAIN` 常量）。6.2 测试同步改写（channels 必须含 in_app 兜底）。
+4. 迁移 `0015_org_config_scheduler`（唯一一条新迁移，零新表）：`org_config` 加 `lesson_reminder_hours TEXT NOT NULL DEFAULT '1440,60'` + `balance_alert_threshold INT NOT NULL DEFAULT 5`；`sms_daily_budget` 默认 50 → 200（**ALTER SET DEFAULT，没改已提交的 0014**）。down_revision = `0014`。upgrade/downgrade 往返验证通过。
+5. `app/core/config.py`：加 `scheduler_enabled=True`（True 时 lifespan 起调度器、**不**起 6.1 worker，二者互斥）、`lesson_reminder_scan_interval_seconds=300`、`balance_alert_scan_interval_seconds=3600`。`app/models/org.py` 加两列模型 + `sms_daily_budget` 默认 200。
+6. 管理端两个接口（`app/api/routes/admin.py`，OfficeUser 收口）：
+   - `GET /admin/notifications/stats`：今日 + 近 7 天（今日起往前 6 天）各通道/各状态计数，`success_rate = succeeded/total`（分母 0 → null）。
+   - `POST /admin/notifications/{id}/retry`：exhausted → 重置 pending（attempts=0、next_retry_at=now、last_error=NULL、succeeded_channels=[]）；succeeded → 409 `NOTIFICATION_ALREADY_SUCCEEDED`；非 exhausted → 409 `NOTIFICATION_NOT_RETRYABLE`；跨租户/不存在 → 404 `NOTIFICATION_NOT_FOUND`。UI 本步不做。
+7. `scripts/simulate_notifications.py`（新，CI 不跑）：1000 条真库验收（见下）。测试新增 18 项：`test_notification_events.py` 7 + `test_scheduler.py` 3 + `test_admin_notification_stats.py` 7 + `test_fallback_chain.py` +1。
+
+**红线（一行没动）**：状态机 / 幂等键 / 退避参数；扣课 / 账本 / 排课写路径；034 站内信钩子；dedupe 冲突静默忽略（`ON CONFLICT DO NOTHING`）；权限 OfficeUser 收口、跨租户 404、家长/老师 403。
+
+**验证**：本地 PostgreSQL（embedded，端口 55432）实跑——`alembic upgrade head` 到 `0015` + downgrade 往返 OK；全量真库 `346 passed / 7 failed`（335 → 353，净 +18；7 个失败均为 Windows 事件循环 flaky / 共享库测试隔离问题，隔离跑或干净库即过，CI 是 Linux + 干净库不受影响）；`ruff check` / `format --check` 全过。**1000 条模拟验收**：500 家长 × 2 条，950 走完整链（站内信兜底送达）、50 条故意走无站内信兜底的链 → exhausted，成功率 0.9500，总耗时 27.36s；再把 50 条 exhausted `retry` 重置并补上 in_app 通道重跑 → 1000 全送达。
+
+**必须跟着改的地方**
+
+1. **数据映射表（生产真模板必须给 `data`）**：6.2 已警告过——事件 payload 若不给精确 `data`，只够 stub。6.4 已给占位映射，但微信后台定稿后要改：
+   - 上课提醒：`data.thing1 = 课程名`、`thing2 = 上课时间(MM月DD日 HH:MM)`、`thing3 = 学生名`（`template_scene=lesson_remind`）；
+   - 余额预警：`data.thing1 = 学生名`、`thing2 = "剩余 N 课时"`（`template_scene=balance_warn`）。
+   微信模板的 thing1/thing2/thing3 具体字段名与字数限制，按实际申请的模板 ID 定稿后替换 `app/services/notification_events.py` 里的 `_lesson_reminder_payload` / `_balance_alert_payload`。
+2. **调度器生产配置**：`SCHEDULER_ENABLED` 默认 true，会停掉 6.1 worker；多实例部署要上锁或外置调度（二期）；`LESSON_REMINDER_SCAN_INTERVAL_SECONDS`（默认 300）/ `BALANCE_ALERT_SCAN_INTERVAL_SECONDS`（默认 3600）按需调。单实例只跑一份调度器。
+3. **余额预警「init」键的语义**：无 consume 流水时用 `init`，意味着「第一次扣课」才会换成真实 consume id 再次触发。若机构希望「充值后余额仍低」也提醒，需另定口径（发令部 2026-11-02 已拍板用 consume 流水 id 口径，不按充值周期）。
+4. **夜间静默只挡外发通道**：`is_silent` 只拦 `scan_*` 的 enqueue，站内信（034 钩子）不受限——别把静默理解成「整个通知系统停摆」。
+5. **retry 只救 exhausted**：`POST /admin/notifications/{id}/retry` 只接受 `exhausted`；`succeeded` / `pending` 都 409。要「重发已成功」的诉求不在本步范围。
+
+**给发令部的指令**
+
+- 清单 6.4「定时任务 + 漏发补偿」已落地：调度器 + 上课提醒（提前 1 天/1 小时）+ 余额预警（≤5 课时）+ 夜间静默 + 完整降级链（订阅→服务号→短信→站内信）+ `sms_daily_budget` 默认 200 + 管理端 stats/retry 接口。零新表。
+- **1000 条模拟结果**（`python -m scripts.simulate_notifications`，真库）：`succeeded=950 / exhausted=50 / pending=0`，成功率 0.9500，总耗时 27.36s；50 条漏发 retry 补上站内信通道后 1000 全送达。exhausted 50 条与「25 个家长 × 2 条走无兜底链」的预期完全一致。
+- 遗留待决策：① 微信真模板的 `data` 字段名定稿（见「必须跟着改 1」）；② 多实例调度器锁 / 外置调度（二期）；③ 退订（SMS_USER_OPTED_OUT / 订阅拒收）仍需家长渠道状态表（6.3 遗留延续）。
 
 ### [6.3] 2026-11-02 · commit `6ff890a`（后端）+ `814c83a`（docs），已推送；CI `41328554738` 四 job 全绿（首次即过）
 
@@ -889,6 +930,7 @@ POST /me/subscribe-auths
 | `org_config` | **加列**（不加表）：`updated_by` uuid、`updated_at` timestamptz，US-217 最小留痕 | 3.5 |
 | `subscribe_auth` | **加列**（不加表）：`available_count` int NOT NULL 默认 0（订阅额度，6.2 扣它）、`updated_at` timestamptz（最近一次授权动作） | 5.4 |
 | `org_config` | **加列**（不加表）：`sms_daily_budget` int NOT NULL 默认 50（机构短信日预算，6.3 短信通道发送前统计） | 6.3 |
+| `org_config` | **加列**（不加表）：`lesson_reminder_hours` text NOT NULL 默认 `'1440,60'`（上课提醒提前分钟数，逗号分隔，空串=不发）+ `balance_alert_threshold` int NOT NULL 默认 5（余额预警阈值，0=关闭）；`sms_daily_budget` 默认 50→200（6.4） | 6.4 |
 
 - 表数口径：平台层 4 + 微信层 3 + 业务层 19 = **26**。
 - `tenant_holiday` 无 `updated_at`/`deleted_at`：节假日不软删，DELETE 物理删除后可重新登记。
@@ -942,3 +984,4 @@ POST /me/subscribe-auths
 | 6.1 | `680b4e0` | 通知中心引擎（阶段 6 开篇，只做机制不接事件）：**新增第 28 张表 `notification`**（业务层 21），`dedupe_key` 全局唯一 + 入队 `ON CONFLICT DO NOTHING`；通道适配器 Protocol + `register_channel`，本步只注册 `in_app`（写 `in_app_message` 幂等键同构、按家长 SAVEPOINT）；`process_pending_notifications` 三态状态机 + `FOR UPDATE SKIP LOCKED` + 指数退避 30s/2min/8min + `succeeded_channels` 部分成功不重发；lifespan 起进程内 worker（owner 连接绕 RLS，env 开关可关）；`updated_at` 是第 3 张带它的表、`(status,next_retry_at)` 索引是不从 tenant_id 起的登记例外。测试 9 项真库 |
 | 6.2 | `848a910` | 微信订阅消息通道（零迁移）：`WechatSubscribeChannel` 接 6.1 注册表；one_time 原子扣额度（`WHERE available_count > 0`）→ 发送 → 失败退还 + 临时重试/永久降级；额度耗尽/无授权/无 openid/scene 不存在/永久拒绝全部降级写站内信不重试；long_term 有授权即发不扣额度；`StubWechatSubscribeClient` + `RealWechatSubscribeClient`（生产 env 切换）；`POST /admin/notifications/test` 人工验证接口（`test:{uuid4}` 故意不幂等）。测试 14 项真库 |
 | 6.3 | `6ff890a` | 服务号 + 短信通道（降级链 + 日预算，零新表）：`channels` 数组改为「有序降级链、第一个成功即停」；`ChannelSkipped` 异常表达「本级永久跳过继续下一级」；新增 `wechat_mp`（未关注/未配置/超时 → 跳过，临时 → 重试）+ `sms`（无手机号/未配置/超预算 → 跳过）；迁移 `0014` 给 `org_config` 加 `sms_daily_budget`（默认 50），发送前 COUNT 当日成功条数达预算即跳过；`GET /admin/sms-usage` 查当日用量。测试 10 项真库 + 2 项老语义改写 |
+| 6.4 | （未提交） | 定时任务 + 漏发补偿（阶段 6 收官，零新表）：自写 asyncio 调度器接管 6.1 worker（互斥）；上课提醒（提前 1 天/1 小时）+ 余额预警（≤5 课时）两条事件、按家长拆分 enqueue、夜间静默 22:00–08:00；wechat_subscribe 改 `ChannelSkipped` 纳入完整降级链（订阅→服务号→短信→站内信）；迁移 `0015` 给 `org_config` 加 `lesson_reminder_hours`/`balance_alert_threshold` + `sms_daily_budget` 默认 50→200；`GET /admin/notifications/stats` + `POST /admin/notifications/{id}/retry`；`scripts/simulate_notifications.py` 1000 条验收（950 成功/50 漏发→retry 全救回）。测试 +18 项 |

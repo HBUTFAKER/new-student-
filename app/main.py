@@ -22,46 +22,64 @@ from app.services.channels import (  # noqa: F401 — 导入即注册 6.2/6.3 �
     wechat_subscribe,
 )
 from app.services.notification_center import run_notification_worker
+from app.services.scheduler import run_scheduler
 
 logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    """Start the in-process notification worker, then release resources on stop.
+    """Start the in-process scheduler (or the 6.1 worker), then release on stop.
 
     The worker needs an owner/superuser connection to scan the pending queue
     across tenants (RLS would otherwise hide every row from ``app_user``). It is
     single-instance safe only — see 08-implementation-delta §0 for the multi-
-    instance caveat. ``NOTIFICATION_WORKER_ENABLED=0`` turns it off (CI/tests).
+    instance caveat.
+
+    6.4 起 ``SCHEDULER_ENABLED``（默认开）接管 6.1 的内置 worker：跑三个定时任务（worker
+    循环 + 上课提醒扫描 + 余额预警扫描），旧 ``NOTIFICATION_WORKER_ENABLED`` 循环不再启动
+    （互斥，防止双循环）。``SCHEDULER_ENABLED=0`` 时回落到 6.1 的纯 worker 循环
+    （``NOTIFICATION_WORKER_ENABLED=1``）。
     """
 
     settings = get_settings()
-    worker: asyncio.Task[None] | None = None
+    task: asyncio.Task[None] | None = None
     stop_event: asyncio.Event | None = None
     worker_engine = None
 
-    if settings.notification_worker_enabled:
+    if settings.scheduler_enabled or settings.notification_worker_enabled:
         worker_engine = create_async_engine(settings.migration_database_url)
         worker_factory = async_sessionmaker(worker_engine, expire_on_commit=False)
         stop_event = asyncio.Event()
-        worker = asyncio.create_task(
-            run_notification_worker(
-                worker_factory,
-                interval_seconds=settings.notification_worker_interval_seconds,
-                stop_event=stop_event,
-            ),
-            name="notification-worker",
-        )
+        if settings.scheduler_enabled:
+            task = asyncio.create_task(
+                run_scheduler(
+                    worker_factory,
+                    worker_interval_seconds=settings.notification_worker_interval_seconds,
+                    reminder_interval_seconds=settings.lesson_reminder_scan_interval_seconds,
+                    balance_interval_seconds=settings.balance_alert_scan_interval_seconds,
+                    stop_event=stop_event,
+                ),
+                name="notification-scheduler",
+            )
+        else:
+            task = asyncio.create_task(
+                run_notification_worker(
+                    worker_factory,
+                    interval_seconds=settings.notification_worker_interval_seconds,
+                    stop_event=stop_event,
+                ),
+                name="notification-worker",
+            )
 
     try:
         yield
     finally:
-        if worker is not None:
+        if task is not None:
             stop_event.set()
-            worker.cancel()
+            task.cancel()
             with suppress(asyncio.CancelledError):
-                await worker
+                await task
         if worker_engine is not None:
             await worker_engine.dispose()
         await engine.dispose()

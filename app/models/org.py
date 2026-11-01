@@ -3,7 +3,17 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, UniqueConstraint, Uuid, text
+from sqlalchemy import (
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    Uuid,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -48,8 +58,18 @@ class OrgConfig(UUIDPrimaryKeyMixin, CreatedAtMixin, TenantMixin, Base):
     logo: Mapped[str | None] = mapped_column(String(255), nullable=True)
     notify_template: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     # 6.3 短信通道的机构级日预算：当日该租户短信成功条数达到此值即跳过短信级。
+    # 6.4 起默认 200（0015 改默认，发令部拍板）。
     sms_daily_budget: Mapped[int] = mapped_column(
-        Integer, nullable=False, server_default=text("50")
+        Integer, nullable=False, server_default=text("200")
+    )
+    # 6.4 上课提醒提前分钟数：逗号分隔（默认 '1440,60' = 提前 1 天 + 提前 1 小时），
+    # 空串 = 不发提醒。机构可配置。
+    lesson_reminder_hours: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'1440,60'")
+    )
+    # 6.4 余额预警阈值：学生课时余额 < 此值时提醒；0 = 关闭预警。机构可配置。
+    balance_alert_threshold: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("5")
     )
     # 3.5 最小留痕：谁在什么时候改了配置（完整审计日志是 US-304 后续阶段）。
     updated_by: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)

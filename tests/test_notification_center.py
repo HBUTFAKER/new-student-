@@ -339,11 +339,13 @@ async def test_worker_loop_processes_pending_and_stops(db_factory, seed) -> None
 
 async def test_lifespan_skips_worker_when_disabled(monkeypatch) -> None:
     settings = get_settings()
+    monkeypatch.setattr(settings, "scheduler_enabled", False)
     monkeypatch.setattr(settings, "notification_worker_enabled", False)
 
     async with lifespan(FastAPI()):
         names = {task.get_name() for task in asyncio.all_tasks()}
         assert "notification-worker" not in names
+        assert "notification-scheduler" not in names
 
 
 class _CountingChannel:

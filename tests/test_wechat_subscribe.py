@@ -2,7 +2,8 @@
 
 全部在真实 PostgreSQL 上跑，stub 客户端注入（不走真微信）。What must never break：
 
-* one_time 发一条扣 1 额度，扣到 0 就降级（写站内信、不抛异常、通道算成功）；
+* one_time 发一条扣 1 额度，扣到 0 就降级（6.4 起 ``ChannelSkipped`` → 跳到链尾 ``in_app``
+  兜底写站内信，通知仍 succeeded）；
 * 从没授权过 → 降级；long_term 有 authorized 授权即可连发、额度不动；
 * 临时失败 → 原子退还额度 + 抛异常让 6.1 重试；永久失败（43101 等）→ 退还额度 + 降级不重试；
 * 并发扣减：count=1 时两个发送并发，恰好一个扣到发出、另一个降级（``WHERE available_count > 0``
@@ -176,7 +177,8 @@ async def enqueue(db_factory, *, tenant_id: UUID, dedupe_key: str, payload: dict
                 event_type="test_event",
                 dedupe_key=dedupe_key,
                 payload=payload,
-                channels=["wechat_subscribe"],
+                # 6.4 起订阅通道永久失败走 ChannelSkipped，站内信由链尾 in_app 兜底。
+                channels=["wechat_subscribe", "in_app"],
             )
 
 
@@ -256,6 +258,7 @@ async def test_quota_exhausted_degrades(db_factory, owner_engine, seed, stub) ->
 
     notification = await get_notification(db_factory, "deg-1")
     assert notification.status == nc.STATUS_SUCCEEDED
+    assert notification.succeeded_channels == ["in_app"]  # 订阅跳过 → in_app 兜底
     assert len(stub.calls) == 0
     assert await count_inapp(owner_engine, parent_id=seed.parent_id) == 1
 
@@ -392,6 +395,7 @@ async def test_permanent_failure_degrades_without_retry(
     notification = await get_notification(db_factory, "perm-1")
     assert notification.status == nc.STATUS_SUCCEEDED
     assert notification.attempts == 0  # 没进重试
+    assert notification.succeeded_channels == ["in_app"]  # 永久拒绝 → in_app 兜底
     assert (
         await get_count(
             owner_engine,

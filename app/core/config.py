@@ -100,6 +100,15 @@ class Settings(BaseSettings):
     notification_worker_enabled: bool = True
     notification_worker_interval_seconds: int = Field(default=30, ge=1)
 
+    # 6.4: scheduler. When enabled it takes over the 6.1 worker loop (mutually
+    # exclusive — the lifespan starts exactly one of them). Self-written asyncio
+    # loops, single-instance only; no APScheduler/Celery.
+    # Env: SCHEDULER_ENABLED=0 / LESSON_REMINDER_SCAN_INTERVAL_SECONDS=300 /
+    #      BALANCE_ALERT_SCAN_INTERVAL_SECONDS=3600.
+    scheduler_enabled: bool = True
+    lesson_reminder_scan_interval_seconds: int = Field(default=300, ge=1)
+    balance_alert_scan_interval_seconds: int = Field(default=3600, ge=1)
+
     @field_validator("database_url", "migration_database_url")
     @classmethod
     def require_async_postgres_driver(cls, value: str) -> str:

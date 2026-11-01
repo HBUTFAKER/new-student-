@@ -24,6 +24,7 @@ from app.models.notification_center import Notification
 from app.services import notification_center as nc
 from app.services.channels.sms import SmsChannel, StubSmsClient
 from app.services.channels.wechat_mp import StubWechatMpClient, WechatMpChannel
+from app.services.channels.wechat_subscribe import StubWechatSubscribeClient, WechatSubscribeChannel
 from tests.auth_support import unique_openid, unique_phone
 
 pytestmark = [
@@ -360,3 +361,80 @@ async def test_transient_failure_retries_only_failed_channel(
     assert notification.status == nc.STATUS_SUCCEEDED
     assert notification.succeeded_channels == ["sms"]
     assert len(sms_stub.calls) == 2  # 只补发短信
+
+
+async def test_full_chain_degrade_to_in_app(
+    db_factory, owner_engine, seed, mp_stub, sms_stub
+) -> None:
+    """订阅耗尽 → 服务号未配置 → 短信超预算 → 站内信兜底，家长最终只收到一条站内信。"""
+
+    subscribe_stub = StubWechatSubscribeClient()
+    settings = configured_settings(wechat_mp_app_id="")  # 服务号未配置
+    nc.register_channel(
+        "wechat_subscribe", WechatSubscribeChannel(client=subscribe_stub, settings=settings)
+    )
+    register_channels(settings, mp_stub, sms_stub)
+
+    # 订阅：给小程序 appid 配 openid + 额度 0（耗尽）→ 订阅级跳过
+    async with owner_engine.begin() as connection:
+        await connection.execute(
+            text(
+                "INSERT INTO wechat_openid (id, wechat_user_id, app_id, openid) "
+                "VALUES (:id, :u, :app, :openid)"
+            ),
+            {
+                "id": uuid4(),
+                "u": seed.wechat_user_id,
+                "app": "wx_platform_stub",
+                "openid": unique_openid("sub"),
+            },
+        )
+        await connection.execute(
+            text(
+                "INSERT INTO subscribe_auth "
+                "(id, tenant_id, wechat_user_id, template_id, status, available_count, updated_at) "
+                "VALUES (gen_random_uuid(), :t, :u, 'stub_lesson_remind', 'authorized', 0, now())"
+            ),
+            {"t": seed.tenant_id, "u": seed.wechat_user_id},
+        )
+        # 短信日预算 0 → 超预算跳过
+        await connection.execute(
+            text(
+                "INSERT INTO org_config (id, tenant_id, sms_daily_budget) "
+                "VALUES (gen_random_uuid(), :t, 0)"
+            ),
+            {"t": seed.tenant_id},
+        )
+
+    payload = {
+        "parent_ids": [str(seed.parent_id)],
+        "template_scene": "lesson_remind",
+        "title": "测试标题",
+        "body": "测试正文",
+        "source_type": "test",
+        "source_id": str(uuid4()),
+    }
+    await enqueue(
+        db_factory,
+        tenant_id=seed.tenant_id,
+        dedupe_key="full-chain-1",
+        payload=payload,
+        channels=["wechat_subscribe", "wechat_mp", "sms", "in_app"],
+    )
+    await nc.process_pending_notifications(db_factory)
+
+    notification = await get_notification(db_factory, "full-chain-1")
+    assert notification.status == nc.STATUS_SUCCEEDED
+    assert notification.succeeded_channels == ["in_app"]
+    assert len(subscribe_stub.calls) == 0  # 额度耗尽，没调微信订阅
+    assert len(mp_stub.calls) == 0  # 未配置，从不调客户端
+    assert len(sms_stub.calls) == 0  # 超预算
+    async with owner_engine.connect() as connection:
+        inapp = int(
+            await connection.scalar(
+                text("SELECT count(*) FROM in_app_message WHERE parent_id = :p"),
+                {"p": seed.parent_id},
+            )
+            or 0
+        )
+    assert inapp == 1

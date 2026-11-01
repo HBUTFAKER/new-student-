@@ -45,8 +45,8 @@ logger = logging.getLogger(__name__)
 
 CHANNEL_SMS = "sms"
 
-#: 机构级短信日预算缺省值（org_config 无行时回落到此）。
-DEFAULT_SMS_DAILY_BUDGET = 50
+#: 机构级短信日预算缺省值（org_config 无行时回落到此）。6.4 起默认 200（发令部拍板）。
+DEFAULT_SMS_DAILY_BUDGET = 200
 
 
 class SmsError(Exception):
@@ -136,7 +136,7 @@ async def count_today_sms(db: AsyncSession, tenant_id: UUID) -> int:
 
 
 async def daily_sms_budget(db: AsyncSession, tenant_id: UUID) -> int:
-    """机构级短信日预算；org_config 无行时回落默认 50。"""
+    """机构级短信日预算；org_config 无行时回落默认 200。"""
 
     value = await db.scalar(
         select(OrgConfig.sms_daily_budget).where(OrgConfig.tenant_id == tenant_id)

@@ -113,8 +113,8 @@ async def test_admin_reads_usage(client, owner_engine, seed: Seed) -> None:
     assert response.status_code == 200, response.text
     data = response.json()
     assert data["used"] == 2
-    assert data["budget"] == 50  # 无 org_config 行 → 默认预算
-    assert data["remaining"] == 48
+    assert data["budget"] == 200  # 无 org_config 行 → 默认预算（6.4 起 200）
+    assert data["remaining"] == 198
 
 
 async def test_teacher_cannot_read(client, owner_engine, seed: Seed) -> None:

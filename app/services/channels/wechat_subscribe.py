@@ -7,9 +7,12 @@
 
 * **先原子扣，扣到才发**：``UPDATE ... WHERE available_count > 0`` 抢到额度才调微信；
   发送失败 → 原子退还（+1）再抛异常（通知中心重试会重新扣）；抢不到 → 降级。
-* **降级不是失败**：额度耗尽 / 模板 scene 不存在 / 找不到 openid / 未授权 / 微信永久
-  拒绝（43101 拒收、40003 openid 无效、40037 模板无效、41030 页面非法）→ **不抛异常**，
-  直接复用 ``in_app`` 通道的发送逻辑写一条站内信，通知标记该通道成功，不进重试状态机。
+* **降级不是失败**（6.4 起）：额度耗尽 / 模板 scene 不存在 / 找不到 openid / 未授权 /
+  微信永久拒绝（43101 拒收、40003 openid 无效、40037 模板无效、41030 页面非法）→
+  **``raise ChannelSkipped``** 让降级链继续下一级，站内信交给链尾 ``in_app`` 通道统一
+  处理（完整链 ``wechat_subscribe → wechat_mp → sms → in_app``，见 0.7 时序图）。
+  6.2 旧语义是「通道内直接写站内信并 return」= 引擎眼里的成功，会挡住后面的通道；
+  6.4 改为跳过本级、由链尾兜底。
 * **one_time 每次扣 1**；**long_term 不扣额度**，但要有 ``status='authorized'`` 的授权
   记录才能发。判断依据是配置里模板的 ``type``，不再查第二遍。
 * openid 只经 ``parent.wechat_user_id → wechat_openid`` 解析，**不落日志、不进 payload**
@@ -17,7 +20,7 @@
 
 ``payload`` 约定（6.4 接事件时按此填）：
 
-* ``parent_ids``: ``[uuid, ...]`` —— 必填，收信家长；
+* ``parent_ids``: ``[uuid, ...]`` —— 必填，收信家长（6.4 事件按家长拆分，恒单家长）；
 * ``template_scene``: 必填，从 ``config.wechat_subscribe_templates`` 反查 ``template_id``；
 * ``title`` / ``body``: 文案（也用于降级站内信的正文）；
 * ``data``: 可选，微信模板字段的精确映射（生产真模板必须给，stub 可省）；
@@ -27,13 +30,11 @@
 
 已知边界（记入 08 §0 交接块）：多家长事件里，若某家长**临时失败**，通道整体抛异常让
 6.1 重试，重试会**重发已经成功的家长**（``succeeded_channels`` 只到通道粒度、不到家长
-粒度）。6.4 事件接入时应按家长拆分 enqueue，或在 payload 里带 per-parent 已发标记，本步
-不做。管理端测试接口是单家长，天然不受影响。
+粒度）。6.4 事件接入时按家长拆分 enqueue，本步不做。管理端测试接口是单家长，天然不受影响。
 """
 
 from __future__ import annotations
 
-import logging
 import time
 from typing import Protocol
 from uuid import UUID
@@ -46,12 +47,10 @@ from app.core.config import Settings, SubscribeTemplate, get_settings
 from app.models.archive import Parent
 from app.models.wechat import SubscribeAuth, WechatOpenid
 from app.services.notification_center import (
-    InAppChannel,
+    ChannelSkipped,
     NotificationContext,
     register_channel,
 )
-
-logger = logging.getLogger(__name__)
 
 CHANNEL_WECHAT_SUBSCRIBE = "wechat_subscribe"
 
@@ -208,11 +207,10 @@ class WechatSubscribeChannel:
             raise ValueError("wechat_subscribe payload 缺 source_id（降级站内信幂等键）")
 
         template = self._templates().get(scene)
+        if template is None:
+            raise ChannelSkipped("TEMPLATE_UNAVAILABLE", f"模板 scene 不存在: {scene}")
         client = self._client_for()
         for parent_id in parent_ids:
-            if template is None:
-                await self._degrade(ctx, parent_id, f"模板 scene 不存在: {scene}")
-                continue
             await self._send_to_parent(ctx, parent_id, template, client)
 
     async def _send_to_parent(
@@ -224,42 +222,38 @@ class WechatSubscribeChannel:
     ) -> None:
         wechat_user_id = await self._resolve_wechat_user_id(ctx.db, parent_id)
         if wechat_user_id is None:
-            await self._degrade(ctx, parent_id, "家长未绑定微信身份")
-            return
+            raise ChannelSkipped("USER_NOT_BOUND", "家长未绑定微信身份")
         openid = await self._resolve_openid(ctx.db, wechat_user_id, self._app_id())
         if openid is None:
-            await self._degrade(ctx, parent_id, "找不到小程序 openid")
-            return
+            raise ChannelSkipped("USER_NOT_BOUND", "找不到小程序 openid")
 
         auth = await self._load_auth(ctx.db, ctx.tenant_id, wechat_user_id, template.template_id)
         if template.type == "long_term":
             # 长期订阅：不扣额度，但要有 authorized 授权记录。
             if auth is None or auth.status != "authorized":
-                await self._degrade(ctx, parent_id, "长期订阅未授权")
-                return
+                raise ChannelSkipped("USER_NOT_SUBSCRIBED", "长期订阅未授权")
         else:
             # 一次性订阅：只认额度，不查 status（5.4 定了 reject/ban 不清额度，额度没用完
             # 就仍可发，见 08 §0 交接块）。从没接受过 = 没记录 = 降级；抢不到额度 = 耗尽。
             if auth is None:
-                await self._degrade(ctx, parent_id, "未授权该模板")
-                return
+                raise ChannelSkipped("USER_NOT_SUBSCRIBED", "未授权该模板")
             if not await self._decrement_quota(
                 ctx.db, ctx.tenant_id, wechat_user_id, template.template_id
             ):
-                await self._degrade(ctx, parent_id, "订阅额度耗尽")
-                return
+                raise ChannelSkipped("ONETIME_QUOTA_EMPTY", "订阅额度耗尽")
 
         data = self._build_data(ctx)
         try:
             await client.send(openid, template.template_id, data)
-        except Exception as exc:  # noqa: BLE001 — 转成「退还+降级」或「退还+重试」
+        except Exception as exc:  # noqa: BLE001 — 转成「退还+跳过」或「退还+重试」
             if template.type == "one_time":
                 await self._refund_quota(
                     ctx.db, ctx.tenant_id, wechat_user_id, template.template_id
                 )
             if isinstance(exc, WechatSubscribeError) and exc.errcode in PERMANENT_ERRCODES:
-                await self._degrade(ctx, parent_id, f"微信永久拒绝（errcode={exc.errcode}）")
-                return
+                raise ChannelSkipped(
+                    f"WX_{exc.errcode}", f"微信永久拒绝（errcode={exc.errcode}）"
+                ) from exc
             raise  # 临时失败：抛异常让 6.1 重试（重试会重新扣）
 
     async def _resolve_wechat_user_id(self, db: AsyncSession, parent_id: str | UUID) -> UUID | None:
@@ -333,40 +327,6 @@ class WechatSubscribeChannel:
             "thing1": {"value": str(ctx.payload.get("title", ""))},
             "thing2": {"value": str(ctx.payload.get("body", ""))},
         }
-
-    async def _degrade(self, ctx: NotificationContext, parent_id: str | UUID, reason: str) -> None:
-        """降级：复用 ``in_app`` 通道的发送逻辑写一条站内信，不抛异常、不算失败。"""
-
-        logger.warning(
-            "wechat_subscribe_degraded",
-            extra={
-                "extra_fields": {
-                    "dedupe_key": ctx.dedupe_key,
-                    "parent_id": str(parent_id),
-                    "reason": reason,
-                }
-            },
-        )
-        sub_payload = dict(ctx.payload)
-        sub_payload["parent_ids"] = [str(parent_id)]
-        sub_payload["type"] = ctx.payload.get("type", ctx.event_type)
-        sub_payload["source_type"] = ctx.payload.get("source_type", ctx.event_type)
-        sub_payload["title"] = ctx.payload.get("title") or "通知"
-        body = ctx.payload.get("body")
-        sub_payload["body"] = (
-            f"{body}（微信订阅消息未送达，已降级为站内信）"
-            if body
-            else "微信订阅消息未送达，已降级为站内信"
-        )
-        await InAppChannel().send(
-            NotificationContext(
-                db=ctx.db,
-                tenant_id=ctx.tenant_id,
-                event_type=ctx.event_type,
-                dedupe_key=ctx.dedupe_key,
-                payload=sub_payload,
-            )
-        )
 
 
 register_channel(CHANNEL_WECHAT_SUBSCRIBE, WechatSubscribeChannel())
