@@ -120,6 +120,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '老师课时报表', roles: OFFICE },
       },
       {
+        path: 'staff',
+        name: 'staff',
+        component: () => import('@/views/StaffView.vue'),
+        meta: { title: '员工账号', roles: ['admin'] },
+      },
+      {
         path: 'settings',
         name: 'settings',
         component: () => import('@/views/PlaceholderView.vue'),

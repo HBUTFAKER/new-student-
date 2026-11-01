@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
-import { ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import type { FormInstance } from 'element-plus'
 
+import { deactivateMyAccount } from '@/api/staff'
+import { ApiError } from '@/api/http'
 import { menuForRole } from '@/config/menu'
 import { useAuthStore } from '@/stores/auth'
 import { ROLE_LABELS } from '@/types/auth'
@@ -30,6 +33,41 @@ async function handleSignOut(): Promise<void> {
   }
   auth.signOut()
   await router.replace({ name: 'login' })
+}
+
+// ---------------------------------------------------------------- 自助注销
+
+const deactivateVisible = ref(false)
+const deactivatePassword = ref('')
+const deactivating = ref(false)
+const deactivateRef = ref<FormInstance>()
+
+function handleCommand(command: string): void {
+  if (command === 'deactivate') {
+    deactivatePassword.value = ''
+    deactivateVisible.value = true
+  } else if (command === 'signout') {
+    void handleSignOut()
+  }
+}
+
+async function submitDeactivate(): Promise<void> {
+  if (!deactivateRef.value) return
+  const valid = await deactivateRef.value.validate().catch(() => false)
+  if (!valid) return
+
+  deactivating.value = true
+  try {
+    await deactivateMyAccount(deactivatePassword.value)
+    deactivateVisible.value = false
+    ElMessage.success('账号已注销')
+    auth.signOut()
+    await router.replace({ name: 'login' })
+  } catch (error) {
+    ElMessage.error(error instanceof ApiError ? error.message : '注销失败，请稍后重试')
+  } finally {
+    deactivating.value = false
+  }
 }
 </script>
 
@@ -70,14 +108,55 @@ async function handleSignOut(): Promise<void> {
         <div class="layout__title">{{ pageTitle }}</div>
         <div class="layout__user">
           <el-tag size="small" type="info" effect="plain">{{ roleLabel }}</el-tag>
-          <span class="layout__account">{{ auth.account }}</span>
-          <el-button link type="primary" @click="handleSignOut">退出登录</el-button>
+          <el-dropdown trigger="click" @command="handleCommand">
+            <span class="layout__account layout__account--btn">
+              {{ auth.account }}
+              <el-icon><ArrowDown /></el-icon>
+            </span>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="deactivate">注销我的账号</el-dropdown-item>
+                <el-dropdown-item command="signout" divided>退出登录</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </div>
       </el-header>
 
       <el-main class="layout__main">
         <RouterView />
       </el-main>
+
+      <!-- 注销我的账号 -->
+      <el-dialog v-model="deactivateVisible" title="注销我的账号" width="440px">
+        <el-alert
+          title="注销后账号立即停用，无法登录；历史记录保留；同手机号可由管理员重新启用。"
+          type="warning"
+          :closable="false"
+          show-icon
+          class="layout__deactivate-alert"
+        />
+        <el-form ref="deactivateRef" label-width="80px" class="layout__deactivate-form">
+          <el-form-item
+            label="当前密码"
+            prop="password"
+            :rules="[{ required: true, message: '请输入当前密码', trigger: 'blur' }]"
+          >
+            <el-input
+              v-model="deactivatePassword"
+              type="password"
+              show-password
+              placeholder="验证身份后注销"
+            />
+          </el-form-item>
+        </el-form>
+        <template #footer>
+          <el-button @click="deactivateVisible = false">取消</el-button>
+          <el-button type="danger" :loading="deactivating" @click="submitDeactivate">
+            确认注销
+          </el-button>
+        </template>
+      </el-dialog>
     </el-container>
   </el-container>
 </template>
@@ -149,6 +228,27 @@ async function handleSignOut(): Promise<void> {
 .layout__account {
   font-size: 13px;
   color: #606266;
+}
+
+.layout__account--btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  color: #303133;
+  outline: none;
+}
+
+.layout__account--btn:hover {
+  color: #409eff;
+}
+
+.layout__deactivate-alert {
+  margin-bottom: 16px;
+}
+
+.layout__deactivate-form {
+  margin-top: 4px;
 }
 
 .layout__main {

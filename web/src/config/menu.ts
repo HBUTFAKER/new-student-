@@ -5,6 +5,8 @@ export interface MenuItem {
   path: string
   /** @element-plus/icons-vue 的组件名，main.ts 已全局注册 */
   icon: string
+  /** 限定可见角色；缺省表示 office 菜单对 admin/registrar 都可见 */
+  roles?: StaffRole[]
   children?: MenuItem[]
 }
 
@@ -43,6 +45,7 @@ const OFFICE_MENU: MenuItem[] = [
       { title: '老师课时', path: '/reports/teacher-hours', icon: 'Timer' },
     ],
   },
+  { title: '员工账号', path: '/staff', icon: 'UserFilled', roles: ['admin'] },
   { title: '机构设置', path: '/settings', icon: 'Setting' },
 ]
 
@@ -56,5 +59,6 @@ const TEACHER_MENU: MenuItem[] = [
 
 export function menuForRole(role: StaffRole | null): MenuItem[] {
   if (role === null) return []
-  return role === 'teacher' ? TEACHER_MENU : OFFICE_MENU
+  if (role === 'teacher') return TEACHER_MENU
+  return OFFICE_MENU.filter((item) => !item.roles || item.roles.includes(role))
 }

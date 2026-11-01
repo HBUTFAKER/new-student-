@@ -17,6 +17,7 @@ from app.api.routes import (
     platform,
     report,
     schedule,
+    staff,
     trade,
 )
 
@@ -24,6 +25,8 @@ api_router = APIRouter()
 api_router.include_router(health.router)
 api_router.include_router(auth.router)
 api_router.include_router(me.router)
+api_router.include_router(staff.router)
+api_router.include_router(staff.account_router)
 api_router.include_router(admin.router)
 api_router.include_router(archive.router)
 api_router.include_router(course.router)
