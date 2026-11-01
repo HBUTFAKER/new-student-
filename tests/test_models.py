@@ -10,12 +10,16 @@ from app.models import BUSINESS_TABLES, PLATFORM_TABLES, RLS_TABLES, WECHAT_TABL
 
 ALL_TABLES = tuple(sorted(Base.metadata.tables))
 
+#: 后台 worker 跨租户扫描「到点待发」队列用的索引，不是业务查询，所以不从 tenant_id 起。
+#: 只有 notification 表有这类索引（见 app/models/notification_center.py）。
+WORKER_QUEUE_INDEXES = {"ix_notification_status_next_retry_at"}
+
 
 def test_table_layers_match_dictionary() -> None:
     assert len(PLATFORM_TABLES) == 4
     assert len(WECHAT_TABLES) == 3
-    assert len(BUSINESS_TABLES) == 20
-    assert len(set(BUSINESS_TABLES)) == 20
+    assert len(BUSINESS_TABLES) == 21
+    assert len(set(BUSINESS_TABLES)) == 21
     assert set(Base.metadata.tables) == {*PLATFORM_TABLES, *WECHAT_TABLES, *BUSINESS_TABLES}
 
 
@@ -32,6 +36,10 @@ def test_business_tables_are_tenant_scoped(table_name: str) -> None:
 @pytest.mark.parametrize("table_name", BUSINESS_TABLES)
 def test_business_table_indexes_start_with_tenant_id(table_name: str) -> None:
     for index in Base.metadata.tables[table_name].indexes:
+        if index.name in WORKER_QUEUE_INDEXES:
+            # 6.1 通知中心：worker 跨租户扫描 pending 队列，索引从 (status, next_retry_at)
+            # 起才能命中，是平台基础设施索引，豁免「业务索引从 tenant_id 起」这条红线。
+            continue
         first_column = next(iter(index.columns))
         assert first_column.name == "tenant_id", f"{index.name} must start with tenant_id"
 
@@ -105,14 +113,15 @@ def test_attendance_unique_key_is_the_idempotency_key() -> None:
 def test_no_table_has_updated_at() -> None:
     """The dictionary defines no updated_at column; nothing may add one silently.
 
-    两处已登记例外：
+    三处已登记例外：
 
     - ``org_config``：3.5 的 US-217「改配置要留痕」（迁移 ``0010``），两列
       ``updated_by`` / ``updated_at``；
     - ``subscribe_auth``：5.4 的订阅授权收集（迁移 ``0011``），``available_count``
-      额度列 + ``updated_at`` 记录最近一次授权动作，6.2 发消息按它判断新鲜度。
+      额度列 + ``updated_at`` 记录最近一次授权动作，6.2 发消息按它判断新鲜度；
+    - ``notification``：6.1 通知中心（迁移 ``0013``），``updated_at`` 追踪重试时间。
 
-    只放行这两张表，别的表再加就红。
+    只放行这三张表，别的表再加就红。
     """
 
     for table_name in ALL_TABLES:
@@ -123,6 +132,10 @@ def test_no_table_has_updated_at() -> None:
         if table_name == "subscribe_auth":
             columns = set(Base.metadata.tables[table_name].c.keys())
             assert {"available_count", "updated_at"} <= columns
+            continue
+        if table_name == "notification":
+            columns = set(Base.metadata.tables[table_name].c.keys())
+            assert {"updated_at", "next_retry_at", "attempts"} <= columns
             continue
         assert "updated_at" not in Base.metadata.tables[table_name].c, table_name
 

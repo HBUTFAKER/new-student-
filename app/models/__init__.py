@@ -17,6 +17,7 @@ from app.models.course import Class, ClassEnrollment, Course, CoursePackage
 from app.models.holiday import TenantHoliday
 from app.models.ledger import LessonLedger
 from app.models.notification import InAppMessage
+from app.models.notification_center import Notification
 from app.models.org import OrgConfig, StaffAccount
 from app.models.platform import Plan, Tenant, TenantSubscription, UsageMeter
 from app.models.schedule import Lesson, ScheduleRule
@@ -38,7 +39,7 @@ WECHAT_TABLES: tuple[str, ...] = (
     "subscribe_auth",
 )
 
-#: Business layer (20) — every table carries ``tenant_id`` (red line 1).
+#: Business layer (21) — every table carries ``tenant_id`` (red line 1).
 BUSINESS_TABLES: tuple[str, ...] = (
     "student",
     "parent",
@@ -60,6 +61,7 @@ BUSINESS_TABLES: tuple[str, ...] = (
     "invite_code",
     "tenant_holiday",
     "in_app_message",
+    "notification",
 )
 
 #: Tables protected by RLS + FORCE RLS: all tenant-scoped business data, plus the
@@ -80,6 +82,7 @@ __all__ = [
     "Course",
     "CoursePackage",
     "InAppMessage",
+    "Notification",
     "InviteCode",
     "Lesson",
     "LessonLedger",

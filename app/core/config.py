@@ -83,6 +83,12 @@ class Settings(BaseSettings):
         default_factory=_default_subscribe_templates
     )
 
+    # 6.1: notification centre worker. The in-process poller is a stop-gap until
+    # 6.4 ships a scheduler; it runs on a single-instance deployment only.
+    # Env: NOTIFICATION_WORKER_ENABLED=0 / NOTIFICATION_WORKER_INTERVAL_SECONDS=30.
+    notification_worker_enabled: bool = True
+    notification_worker_interval_seconds: int = Field(default=30, ge=1)
+
     @field_validator("database_url", "migration_database_url")
     @classmethod
     def require_async_postgres_driver(cls, value: str) -> str:
