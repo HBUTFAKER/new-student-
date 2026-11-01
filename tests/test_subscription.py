@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.services import notification_center as nc
 from app.services import notification_events as ne
-from app.services.ledger import BUSINESS_TZ
+from app.services.ledger import BUSINESS_TZ, business_today
 from tests.auth_support import seed_family, seed_staff, unique_openid, unique_phone
 
 pytestmark = [
@@ -68,13 +68,13 @@ async def test_expiry_boundary_today_usable_yesterday_blocked(client, owner_engi
         role="admin",
         phone=unique_phone(),
     )
-    await set_end_date(owner_engine, admin.tenant_id, date.today())
+    await set_end_date(owner_engine, admin.tenant_id, business_today())
     headers = await login_headers(client, admin.phone, admin.password)
 
     ok = await client.post("/students", json={"name": "小明"}, headers=headers)
     assert ok.status_code == 201, ok.text
 
-    await set_end_date(owner_engine, admin.tenant_id, date.today() - timedelta(days=1))
+    await set_end_date(owner_engine, admin.tenant_id, business_today() - timedelta(days=1))
 
     blocked = await client.post("/students", json={"name": "小红"}, headers=headers)
     assert blocked.status_code == 402
@@ -97,7 +97,7 @@ async def test_all_tenant_roles_blocked_on_write(client, owner_engine) -> None:
             role=role,
             phone=unique_phone(),
         )
-        await set_end_date(owner_engine, staff.tenant_id, date.today() - timedelta(days=1))
+        await set_end_date(owner_engine, staff.tenant_id, business_today() - timedelta(days=1))
         headers = await login_headers(client, staff.phone, staff.password)
         blocked = await client.post("/students", json={"name": "学生"}, headers=headers)
         assert blocked.status_code == 402, f"{role} 应 402，实际 {blocked.status_code}"
@@ -108,7 +108,7 @@ async def test_all_tenant_roles_blocked_on_write(client, owner_engine) -> None:
         role="admin",
         phone=unique_phone(),
     )
-    await set_end_date(owner_engine, admin.tenant_id, date.today() - timedelta(days=1))
+    await set_end_date(owner_engine, admin.tenant_id, business_today() - timedelta(days=1))
     login = await client.post(
         "/auth/login", json={"phone": admin.phone, "password": admin.password}
     )
@@ -118,7 +118,7 @@ async def test_all_tenant_roles_blocked_on_write(client, owner_engine) -> None:
 async def test_parent_blocked_on_write(client, owner_engine) -> None:
     openid = unique_openid("parent-expired")
     family = await seed_family(owner_engine, entries=[("家长机构", "小明")], openid=openid)
-    await set_end_date(owner_engine, family.tenant_ids[0], date.today() - timedelta(days=1))
+    await set_end_date(owner_engine, family.tenant_ids[0], business_today() - timedelta(days=1))
 
     login = await client.post("/auth/wechat-login", json={"wx_code": openid})
     assert login.status_code == 200, login.text
@@ -151,7 +151,7 @@ async def test_platform_admin_exempt_and_renew(client, owner_engine) -> None:
         role="admin",
         phone=unique_phone(),
     )
-    await set_end_date(owner_engine, admin.tenant_id, date.today() - timedelta(days=1))
+    await set_end_date(owner_engine, admin.tenant_id, business_today() - timedelta(days=1))
 
     # platform_admin 对到期租户调 renew（写接口）不受闸门影响
     renew = await client.post(
@@ -160,7 +160,7 @@ async def test_platform_admin_exempt_and_renew(client, owner_engine) -> None:
         headers=platform_headers,
     )
     assert renew.status_code == 200, renew.text
-    assert renew.json()["end_date"] == (date.today() + timedelta(days=30)).isoformat()
+    assert renew.json()["end_date"] == (business_today() + timedelta(days=30)).isoformat()
 
 
 async def test_renew_restores_write_and_switches_plan(client, owner_engine) -> None:
@@ -171,7 +171,7 @@ async def test_renew_restores_write_and_switches_plan(client, owner_engine) -> N
         phone=unique_phone(),
     )
     plan_id = await get_plan_id(owner_engine, admin.tenant_id)
-    await set_end_date(owner_engine, admin.tenant_id, date.today() - timedelta(days=3))
+    await set_end_date(owner_engine, admin.tenant_id, business_today() - timedelta(days=3))
     headers = await login_headers(client, admin.phone, admin.password)
     assert (await client.post("/students", json={"name": "x"}, headers=headers)).status_code == 402
 
@@ -191,7 +191,7 @@ async def test_renew_restores_write_and_switches_plan(client, owner_engine) -> N
     assert renew.status_code == 200, renew.text
     body = renew.json()
     # 已过期机构从今天起算（不是过期日起算，不白送天数）
-    assert body["end_date"] == (date.today() + timedelta(days=30)).isoformat()
+    assert body["end_date"] == (business_today() + timedelta(days=30)).isoformat()
     assert body["plan_id"] == str(plan_id)
     assert body["plan_name"] == "基础版"
 
@@ -216,7 +216,7 @@ async def test_renew_restores_write_and_switches_plan(client, owner_engine) -> N
     assert renew2.status_code == 200
     assert renew2.json()["plan_id"] == str(new_plan_id)
     assert renew2.json()["plan_name"] == "高级版"
-    assert renew2.json()["end_date"] == (date.today() + timedelta(days=40)).isoformat()
+    assert renew2.json()["end_date"] == (business_today() + timedelta(days=40)).isoformat()
 
 
 async def test_renew_forbidden_for_tenant_roles(client, owner_engine) -> None:
@@ -426,7 +426,7 @@ async def test_enqueued_notification_still_sent_after_expiry(client, owner_engin
                 channels=[nc.CHANNEL_IN_APP],
             )
 
-    await set_end_date(owner_engine, admin.tenant_id, date.today() - timedelta(days=1))
+    await set_end_date(owner_engine, admin.tenant_id, business_today() - timedelta(days=1))
     await nc.process_pending_notifications(db_factory)
 
     async with db_factory() as db:
@@ -446,18 +446,18 @@ async def test_me_subscription_days_left_and_expired(client, owner_engine) -> No
         role="admin",
         phone=unique_phone(),
     )
-    await set_end_date(owner_engine, admin.tenant_id, date.today() + timedelta(days=14))
+    await set_end_date(owner_engine, admin.tenant_id, business_today() + timedelta(days=14))
     headers = await login_headers(client, admin.phone, admin.password)
 
     resp = await client.get("/me/subscription", headers=headers)
     assert resp.status_code == 200
     body = resp.json()
     assert body["plan_name"] == "基础版"
-    assert body["end_date"] == (date.today() + timedelta(days=14)).isoformat()
+    assert body["end_date"] == (business_today() + timedelta(days=14)).isoformat()
     assert body["days_left"] == 14
     assert body["expired"] is False
 
-    await set_end_date(owner_engine, admin.tenant_id, date.today() - timedelta(days=1))
+    await set_end_date(owner_engine, admin.tenant_id, business_today() - timedelta(days=1))
     resp2 = await client.get("/me/subscription", headers=headers)
     assert resp2.status_code == 200
     assert resp2.json()["expired"] is True
