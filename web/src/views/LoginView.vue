@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 
@@ -14,9 +14,10 @@ const auth = useAuthStore()
 const formRef = ref<FormInstance>()
 const submitting = ref(false)
 const errorText = ref('')
+const justRegistered = ref(route.query.registered === '1')
 
 const form = reactive({
-  phone: '',
+  phone: typeof route.query.phone === 'string' ? route.query.phone : '',
   password: '',
 })
 
@@ -70,6 +71,15 @@ async function handleSubmit(): Promise<void> {
       </div>
 
       <el-alert
+        v-if="justRegistered"
+        title="注册成功，请登录"
+        type="success"
+        show-icon
+        :closable="false"
+        class="login__error"
+      />
+
+      <el-alert
         v-if="errorText"
         :title="errorText"
         type="error"
@@ -114,6 +124,11 @@ async function handleSubmit(): Promise<void> {
           登录
         </el-button>
       </el-form>
+
+      <div class="login__foot">
+        还没有账号？
+        <RouterLink class="login__link" :to="{ name: 'register' }">新机构注册</RouterLink>
+      </div>
     </div>
   </div>
 </template>
@@ -175,5 +190,21 @@ async function handleSubmit(): Promise<void> {
 .login__submit {
   width: 100%;
   margin-top: 4px;
+}
+
+.login__foot {
+  margin-top: 18px;
+  text-align: center;
+  font-size: 13px;
+  color: #909399;
+}
+
+.login__link {
+  color: #409eff;
+  font-weight: 500;
+}
+
+.login__link:hover {
+  text-decoration: underline;
 }
 </style>

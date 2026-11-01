@@ -25,6 +25,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '登录', public: true },
   },
   {
+    path: '/register',
+    name: 'register',
+    component: () => import('@/views/RegisterView.vue'),
+    meta: { title: '注册', public: true },
+  },
+  {
     path: '/',
     component: () => import('@/layouts/AdminLayout.vue'),
     redirect: { name: 'dashboard' },
@@ -156,8 +162,8 @@ router.beforeEach((to) => {
   const auth = useAuthStore()
 
   if (to.meta.public) {
-    // 已登录再访问登录页 → 直接进工作台
-    if (to.name === 'login' && auth.isAuthenticated) {
+    // 已登录再访问登录/注册页 → 直接进工作台
+    if ((to.name === 'login' || to.name === 'register') && auth.isAuthenticated) {
       return { name: 'dashboard' }
     }
     return true
