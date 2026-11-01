@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy import text
 
 from app.core.security import hash_password
-from tests.auth_support import unique_phone
+from tests.auth_support import seed_subscription, unique_phone
 
 pytestmark = [
     pytest.mark.integration,
@@ -47,6 +47,7 @@ async def holiday_seed(owner_engine) -> HolidaySeed:
             text("INSERT INTO tenant (id, name) VALUES (:id, :name)"),
             {"id": tenant_id, "name": f"节假日机构-{uuid4().hex[:8]}"},
         )
+        await seed_subscription(connection, tenant_id)
         await connection.execute(
             text("INSERT INTO teacher (id, tenant_id, name) VALUES (:id, :tenant, '值班老师')"),
             {"id": teacher_id, "tenant": tenant_id},
@@ -151,6 +152,7 @@ async def test_cross_tenant_holidays_are_invisible(
             text("INSERT INTO tenant (id, name) VALUES (:id, :name)"),
             {"id": other_tenant, "name": f"别家机构-{uuid4().hex[:8]}"},
         )
+        await seed_subscription(connection, other_tenant)
         await connection.execute(
             text(
                 "INSERT INTO tenant_holiday (id, tenant_id, date, name) "

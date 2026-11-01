@@ -17,7 +17,7 @@ from sqlalchemy import text
 
 from app.core.security import hash_password
 from app.services.ledger import business_today
-from tests.auth_support import unique_phone
+from tests.auth_support import seed_subscription, unique_phone
 
 pytestmark = [
     pytest.mark.integration,
@@ -61,6 +61,7 @@ async def lesson_seed(owner_engine) -> LessonSeed:
             text("INSERT INTO tenant (id, name) VALUES (:id, :name)"),
             {"id": tenant_id, "name": f"课次机构-{uuid4().hex[:8]}"},
         )
+        await seed_subscription(connection, tenant_id)
         await connection.execute(
             text("INSERT INTO teacher (id, tenant_id, name) VALUES (:id, :tenant, '排课老师')"),
             {"id": teacher_id, "tenant": tenant_id},
@@ -344,6 +345,7 @@ async def test_cross_tenant_lessons_are_invisible_and_teacher_is_denied(
             text("INSERT INTO tenant (id, name) VALUES (:id, :name)"),
             {"id": other_tenant, "name": f"别家机构-{uuid4().hex[:8]}"},
         )
+        await seed_subscription(connection, other_tenant)
         await connection.execute(
             text("INSERT INTO teacher (id, tenant_id, name) VALUES (:id, :tenant, '别家老师')"),
             {"id": foreign_teacher, "tenant": other_tenant},

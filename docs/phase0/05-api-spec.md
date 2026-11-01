@@ -58,6 +58,24 @@
 - **GET 响应 200**：`{ "items": [{ "id", "name", "phone", "role", "status", "teacher_id", "created_at" }], "total": n }`
 - **说明**：停用沿用 `status='inactive'`（登录与 token 校验已拦截，停用即生效，无需踢下线逻辑）；同手机号多机构登录消歧仍为二期（挂账）。
 
+### 1.5 订阅状态与续费（7.2 落地，零新表零加列）
+
+| 接口 | 权限 |
+|------|------|
+| `GET /me/subscription` | ✅任意登录角色（机构内 staff 横幅数据源；家长亦可调，无限制） |
+| `POST /platform/tenants/{tenant_id}/renew` | ✅仅 platform_admin |
+
+- **`GET /me/subscription` 响应 200**：`{ "plan_name": "基础版", "end_date": "2026-12-31", "days_left": 45, "expired": false }`
+  - `days_left = (end_date - today).days`；`expired = today > end_date`（**end_date 当天仍可用**）
+  - `tenant_id=None`（未选租户的家长）→ 403 `OUT_OF_SCOPE`「仅机构账号可访问」
+  - 查不到订阅行 → 500 `SUBSCRIPTION_MISSING`（provision_tenant 保证一定有，暴露问题、不静默放行）
+- **`POST /platform/tenants/{tenant_id}/renew` 请求**：`{ "days": 30, "plan_id"?: "uuid" }`
+  - `days ≥ 1`；从 `max(today, end_date)` 起顺延 `days` 天（**已过期机构从今天起算，不白送过期天数**）
+  - 带 `plan_id` 则同时换套餐；plan 不存在 → 404 `PLAN_NOT_FOUND`；订阅行不存在 → 404 `SUBSCRIPTION_NOT_FOUND`
+  - 响应 200：`{ "end_date", "plan_id", "plan_name" }`；续费即时生效（无缓存）
+  - 本步只做接口不做 UI（平台后台归 7.4）
+- **到期只读降级（写闸门，7.2 核心口径）**：到期租户内所有角色（admin/registrar/teacher/parent）的 `POST/PATCH/PUT/DELETE` 写请求统一 402 `SUBSCRIPTION_EXPIRED`，detail「机构服务已到期，请联系管理员续费（数据已完整保留）」；放行白名单 `/auth/*` + `platform_admin` + 无租户身份；读接口（GET/HEAD/OPTIONS）天然放行。判定口径 `today > end_date`（业务日期 UTC+8，非服务器本地时区）。
+
 ## 2. 档案模块
 
 > **1.6 落地说明**：2.1–2.6 全部接口、2.3 教务直绑、2.4 邀请码、9.1 家长自助绑定已实现并通过阶段验收测试。差异与实现口径：

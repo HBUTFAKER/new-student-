@@ -9,12 +9,14 @@ from uuid import uuid4
 
 from fastapi import FastAPI, Request
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from starlette.responses import Response
+from starlette.responses import JSONResponse, Response
 
 from app.api.errors import install_error_handlers
 from app.api.router import api_router
 from app.core.config import get_settings
+from app.core.errors import AppError
 from app.core.logging import configure_logging
+from app.core.security import TokenExpiredError, TokenInvalidError, decode_token
 from app.db.engine import engine
 from app.services.channels import (  # noqa: F401 — 导入即注册 6.2/6.3 通道
     sms,
@@ -23,8 +25,23 @@ from app.services.channels import (  # noqa: F401 — 导入即注册 6.2/6.3 �
 )
 from app.services.notification_center import run_notification_worker
 from app.services.scheduler import run_scheduler
+from app.services.subscription import is_subscription_expired, owner_session
 
 logger = logging.getLogger(__name__)
+
+_WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+def _gate_error(request: Request, code: str, message: str) -> dict:
+    """构造与 errors.py 同构的错误信封（gate 直接返回响应，不 raise 以避开中间件异常链）。"""
+
+    return {
+        "error": {
+            "code": code,
+            "message": message,
+            "trace_id": getattr(request.state, "trace_id", "-"),
+        }
+    }
 
 
 @asynccontextmanager
@@ -97,6 +114,54 @@ def create_app() -> FastAPI:
         debug=settings.debug,
         lifespan=lifespan,
     )
+
+    @application.middleware("http")
+    async def subscription_gate(request: Request, call_next) -> Response:
+        """到期只读闸门（7.2）：默认拦租户写请求，只放 /auth、platform_admin 与无租户身份。
+
+        方向是「默认拦写 + 仅放 /auth」，不是按业务路由白名单逐个放行（会漏）。读接口
+        （GET/HEAD/OPTIONS）天然不在此列。每个写请求查一次订阅表可接受（10 人机构 QPS
+        极低），不上缓存以免「续费后不生效」。
+        """
+
+        if request.method not in _WRITE_METHODS:
+            return await call_next(request)
+        if request.url.path.startswith("/auth/"):
+            return await call_next(request)
+
+        authorization = request.headers.get("authorization")
+        if not authorization or not authorization.lower().startswith("bearer "):
+            # 无 token：公开接口（如 /platform/register）或未登录，交由下游 401/权限处理。
+            return await call_next(request)
+
+        try:
+            claims = decode_token(authorization[7:].strip(), expected_type="access")
+        except (TokenExpiredError, TokenInvalidError):
+            # 无效/过期 token 交由 get_principal 返回统一 401，这里不越俎代庖。
+            return await call_next(request)
+
+        if claims.role == "platform_admin" or claims.tenant_id is None:
+            return await call_next(request)
+
+        try:
+            async with owner_session() as db:
+                expired = await is_subscription_expired(db, claims.tenant_id)
+        except AppError as exc:
+            return JSONResponse(
+                status_code=exc.status_code,
+                content=_gate_error(request, exc.code, exc.message),
+            )
+
+        if expired:
+            return JSONResponse(
+                status_code=402,
+                content=_gate_error(
+                    request,
+                    "SUBSCRIPTION_EXPIRED",
+                    "机构服务已到期，请联系管理员续费（数据已完整保留）",
+                ),
+            )
+        return await call_next(request)
 
     @application.middleware("http")
     async def request_logging(request: Request, call_next) -> Response:

@@ -68,6 +68,9 @@ export function onSessionExpired(handler: () => void): void {
   sessionExpiredHandler = handler
 }
 
+/** 402 到期只读：同一会话只弹一次，避免连续写操作触发弹窗风暴 */
+let subscriptionExpiredNotified = false
+
 http.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   const token = getAccessToken()
   if (token) {
@@ -195,6 +198,14 @@ http.interceptors.response.use(
     }
 
     const apiError = toApiError(error)
+    if (status === 402 && !config?.skipErrorToast) {
+      // 到期只读：同一会话只提示一次，后续 402 静默抛错（横幅已经说明只读原因）
+      if (!subscriptionExpiredNotified) {
+        subscriptionExpiredNotified = true
+        ElMessage.error(apiError.message)
+      }
+      throw apiError
+    }
     if (!config?.skipErrorToast) {
       ElMessage.error(apiError.message)
     }

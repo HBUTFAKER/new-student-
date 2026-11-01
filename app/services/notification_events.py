@@ -17,7 +17,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -27,7 +27,7 @@ from app.models.archive import ParentStudent, Student
 from app.models.course import Class, ClassEnrollment
 from app.models.ledger import LessonLedger
 from app.models.org import OrgConfig
-from app.models.platform import Tenant
+from app.models.platform import Tenant, TenantSubscription
 from app.models.schedule import Lesson
 from app.services.ledger import BUSINESS_TZ
 from app.services.notification_center import SessionFactory, enqueue_notification
@@ -102,6 +102,24 @@ def _format_time(value: datetime) -> str:
     return value.astimezone(BUSINESS_TZ).strftime("%m月%d日 %H:%M")
 
 
+async def _active_tenant_ids(db: AsyncSession, today: date) -> list[UUID]:
+    """未到期租户 id（``end_date >= today``）。到期租户不再产生新的通知事件（7.2）。
+
+    到期判定与写闸门同口径：``today > end_date`` 才算到期，``end_date`` 当天仍可用。
+    已 enqueue 的 notification 不动（由 6.1 引擎照常消化），这里只拦「新扫描入队」。
+    """
+
+    return list(
+        (
+            await db.scalars(
+                select(Tenant.id)
+                .join(TenantSubscription, TenantSubscription.tenant_id == Tenant.id)
+                .where(TenantSubscription.end_date >= today)
+            )
+        ).all()
+    )
+
+
 def _lesson_reminder_payload(
     *,
     parent_id: UUID,
@@ -173,7 +191,7 @@ async def scan_lesson_reminders(db_factory: SessionFactory, *, now: datetime | N
     enqueued = 0
     async with db_factory() as db:
         async with db.begin():
-            tenant_ids = list((await db.scalars(select(Tenant.id))).all())
+            tenant_ids = await _active_tenant_ids(db, now.astimezone(BUSINESS_TZ).date())
             for tenant_id in tenant_ids:
                 offsets = sorted(await lesson_reminder_offsets(db, tenant_id), reverse=True)
                 if not offsets:
@@ -266,7 +284,7 @@ async def scan_balance_alerts(db_factory: SessionFactory, *, now: datetime | Non
     enqueued = 0
     async with db_factory() as db:
         async with db.begin():
-            tenant_ids = list((await db.scalars(select(Tenant.id))).all())
+            tenant_ids = await _active_tenant_ids(db, now.astimezone(BUSINESS_TZ).date())
             for tenant_id in tenant_ids:
                 threshold = await balance_alert_threshold(db, tenant_id)
                 if threshold <= 0:

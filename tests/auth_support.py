@@ -1,12 +1,44 @@
 """Seeding helpers for authentication and authorization integration tests."""
 
 from dataclasses import dataclass
+from datetime import date
 from uuid import UUID, uuid4
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.core.security import hash_password
+
+#: seed 租户的默认订阅到期日（远未来，测试不触发到期降级）。
+SEED_SUBSCRIPTION_END = date(2099, 12, 31)
+
+
+async def seed_subscription(
+    connection, tenant_id: UUID, *, end_date: date = SEED_SUBSCRIPTION_END
+) -> UUID:
+    """给租户建一条订阅（plan + tenant_subscription）。写闸门依赖订阅行，seed 必须补。
+
+    真实世界 provision_tenant 保证每个租户都有订阅；seed 直接插 tenant 时也得补上，
+    否则 7.2 的写闸门会把「查不到订阅」当成 500 暴露。
+    """
+
+    plan_id = uuid4()
+    await connection.execute(
+        text(
+            "INSERT INTO plan (id, name, max_students, max_messages, price) "
+            "VALUES (:id, '基础版', 100, 1000, 0)"
+        ),
+        {"id": plan_id},
+    )
+    await connection.execute(
+        text(
+            "INSERT INTO tenant_subscription "
+            "(id, tenant_id, plan_id, start_date, end_date, status) "
+            "VALUES (:id, :t, :p, '2026-01-01', :end, 'active')"
+        ),
+        {"id": uuid4(), "t": tenant_id, "p": plan_id, "end": end_date},
+    )
+    return plan_id
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +87,7 @@ async def seed_staff(
             text("INSERT INTO tenant (id, name) VALUES (:id, :name)"),
             {"id": tenant_id, "name": tenant_name},
         )
+        await seed_subscription(connection, tenant_id, end_date=SEED_SUBSCRIPTION_END)
         if role == "teacher":
             teacher_id = uuid4()
             await connection.execute(
@@ -127,6 +160,7 @@ async def seed_family(
                 text("INSERT INTO tenant (id, name) VALUES (:id, :name)"),
                 {"id": tenant_id, "name": tenant_name},
             )
+            await seed_subscription(connection, tenant_id, end_date=SEED_SUBSCRIPTION_END)
             await connection.execute(
                 text("INSERT INTO student (id, tenant_id, name) VALUES (:id, :tenant, :name)"),
                 {"id": student_id, "tenant": tenant_id, "name": student_name},

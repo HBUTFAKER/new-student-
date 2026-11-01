@@ -19,7 +19,7 @@ from app.core.security import hash_password
 from app.db.session import AsyncSessionFactory
 from app.db.tenant import tenant_context
 from app.services.ledger import add_months, business_today, deduct_lessons
-from tests.auth_support import unique_openid, unique_phone
+from tests.auth_support import seed_subscription, unique_openid, unique_phone
 
 pytestmark = [
     pytest.mark.integration,
@@ -85,6 +85,7 @@ async def ledger_seed(owner_engine) -> LedgerSeed:
                 id=tid,
                 name=name,
             )
+            await seed_subscription(connection, tid)
         for tid, name in ((teacher_id, "主教老师"), (other_teacher_id, "别班老师")):
             await _insert(
                 connection,

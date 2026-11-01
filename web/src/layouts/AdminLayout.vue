@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance } from 'element-plus'
 
 import { deactivateMyAccount } from '@/api/staff'
 import { ApiError } from '@/api/http'
+import { getMySubscription } from '@/api/subscription'
 import { menuForRole } from '@/config/menu'
 import { useAuthStore } from '@/stores/auth'
 import { ROLE_LABELS } from '@/types/auth'
+import type { SubscriptionStatus } from '@/types/subscription'
 
 const route = useRoute()
 const router = useRouter()
@@ -20,6 +22,37 @@ const openedMenus = computed(() =>
 )
 const roleLabel = computed(() => (auth.role ? ROLE_LABELS[auth.role] : ''))
 const pageTitle = computed(() => (typeof route.meta.title === 'string' ? route.meta.title : ''))
+
+// ---------------------------------------------------------------- 订阅到期横幅（7.2）
+
+const subscription = ref<SubscriptionStatus | null>(null)
+
+const banner = computed<{ type: 'warning' | 'error'; text: string } | null>(() => {
+  const sub = subscription.value
+  if (!sub) return null
+  if (sub.expired) {
+    return { type: 'error', text: '服务已到期，当前为只读模式，请联系平台续费' }
+  }
+  if (sub.days_left > 7) return null
+  if (sub.days_left > 3) {
+    return {
+      type: 'warning',
+      text: `${sub.plan_name} 剩余 ${sub.days_left} 天，到期后系统将转为只读`,
+    }
+  }
+  return {
+    type: 'error',
+    text: `${sub.plan_name} 仅剩 ${sub.days_left} 天，请尽快续费，到期后系统将转为只读`,
+  }
+})
+
+onMounted(async () => {
+  try {
+    subscription.value = await getMySubscription()
+  } catch {
+    // 拉取失败静默：到期 402 由 http 拦截器统一提示，这里不做横幅
+  }
+})
 
 async function handleSignOut(): Promise<void> {
   try {
@@ -38,13 +71,13 @@ async function handleSignOut(): Promise<void> {
 // ---------------------------------------------------------------- 自助注销
 
 const deactivateVisible = ref(false)
-const deactivatePassword = ref('')
+const deactivateForm = reactive({ password: '' })
 const deactivating = ref(false)
 const deactivateRef = ref<FormInstance>()
 
 function handleCommand(command: string): void {
   if (command === 'deactivate') {
-    deactivatePassword.value = ''
+    deactivateForm.password = ''
     deactivateVisible.value = true
   } else if (command === 'signout') {
     void handleSignOut()
@@ -58,7 +91,7 @@ async function submitDeactivate(): Promise<void> {
 
   deactivating.value = true
   try {
-    await deactivateMyAccount(deactivatePassword.value)
+    await deactivateMyAccount(deactivateForm.password)
     deactivateVisible.value = false
     ElMessage.success('账号已注销')
     auth.signOut()
@@ -123,6 +156,15 @@ async function submitDeactivate(): Promise<void> {
         </div>
       </el-header>
 
+      <el-alert
+        v-if="banner"
+        :title="banner.text"
+        :type="banner.type"
+        :closable="false"
+        show-icon
+        class="layout__banner"
+      />
+
       <el-main class="layout__main">
         <RouterView />
       </el-main>
@@ -136,14 +178,14 @@ async function submitDeactivate(): Promise<void> {
           show-icon
           class="layout__deactivate-alert"
         />
-        <el-form ref="deactivateRef" label-width="80px" class="layout__deactivate-form">
+        <el-form ref="deactivateRef" :model="deactivateForm" label-width="80px" class="layout__deactivate-form">
           <el-form-item
             label="当前密码"
             prop="password"
             :rules="[{ required: true, message: '请输入当前密码', trigger: 'blur' }]"
           >
             <el-input
-              v-model="deactivatePassword"
+              v-model="deactivateForm.password"
               type="password"
               show-password
               placeholder="验证身份后注销"
@@ -254,5 +296,9 @@ async function submitDeactivate(): Promise<void> {
 .layout__main {
   padding: 20px;
   background-color: #f5f7fa;
+}
+
+.layout__banner {
+  border-radius: 0;
 }
 </style>

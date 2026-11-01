@@ -244,13 +244,13 @@ async function changeStatus(row: Staff, status: StaffStatus): Promise<void> {
 
 const resetVisible = ref(false)
 const resetTarget = ref<Staff | null>(null)
-const resetPassword = ref('')
+const resetForm = reactive({ password: '' })
 const resetting = ref(false)
 const resetRef = ref<FormInstance>()
 
 function openReset(row: Staff): void {
   resetTarget.value = row
-  resetPassword.value = ''
+  resetForm.password = ''
   resetVisible.value = true
 }
 
@@ -261,7 +261,7 @@ async function submitReset(): Promise<void> {
 
   resetting.value = true
   try {
-    await updateStaff(resetTarget.value.id, { password: resetPassword.value })
+    await updateStaff(resetTarget.value.id, { password: resetForm.password })
     ElMessage.success('密码已重置')
     resetVisible.value = false
   } catch (error) {
@@ -427,7 +427,7 @@ onMounted(() => {
     <!-- 重置密码 -->
     <el-dialog v-model="resetVisible" title="重置密码" width="420px">
       <p v-if="resetTarget" class="reset-hint">为「{{ resetTarget.name }}」设置新密码</p>
-      <el-form ref="resetRef" label-width="80px">
+      <el-form ref="resetRef" :model="resetForm" label-width="80px">
         <el-form-item
           label="新密码"
           prop="password"
@@ -437,7 +437,7 @@ onMounted(() => {
           ]"
         >
           <el-input
-            v-model="resetPassword"
+            v-model="resetForm.password"
             maxlength="72"
             placeholder="8~72 字符"
             show-password

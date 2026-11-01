@@ -17,7 +17,7 @@ from sqlalchemy import text
 
 from app.core.config import get_settings
 from app.core.security import decode_token, hash_password
-from tests.auth_support import unique_openid, unique_phone
+from tests.auth_support import seed_subscription, unique_openid, unique_phone
 
 pytestmark = [
     pytest.mark.integration,
@@ -52,6 +52,7 @@ async def _provision(client: httpx.AsyncClient, owner_engine, label: str) -> Ten
             text("INSERT INTO tenant (id, name) VALUES (:id, :name)"),
             {"id": tenant_id, "name": f"{label}机构-{uuid4().hex[:8]}"},
         )
+        await seed_subscription(connection, tenant_id)
         await connection.execute(
             text(
                 "INSERT INTO staff_account "

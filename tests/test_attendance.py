@@ -28,7 +28,7 @@ from app.db.session import AsyncSessionFactory
 from app.db.tenant import tenant_context
 from app.services.attendance import CheckInRequest, check_in
 from app.services.ledger import BUSINESS_TZ, business_today
-from tests.auth_support import unique_phone
+from tests.auth_support import seed_subscription, unique_phone
 
 pytestmark = [
     pytest.mark.integration,
@@ -82,6 +82,7 @@ async def attendance_seed(owner_engine) -> AttendanceSeed:
             text("INSERT INTO tenant (id, name) VALUES (:id, :name)"),
             {"id": tenant_id, "name": f"签到机构-{uuid4().hex[:8]}"},
         )
+        await seed_subscription(connection, tenant_id)
         for teacher_id in (teacher1, teacher2):
             await connection.execute(
                 text("INSERT INTO teacher (id, tenant_id, name) VALUES (:id, :t, '老师')"),
@@ -701,6 +702,7 @@ async def test_cross_tenant_lesson_is_404(
             text("INSERT INTO tenant (id, name) VALUES (:id, :name)"),
             {"id": other_tenant, "name": f"别家机构-{uuid4().hex[:8]}"},
         )
+        await seed_subscription(connection, other_tenant)
         await connection.execute(
             text("INSERT INTO teacher (id, tenant_id, name) VALUES (:id, :t, '别家老师')"),
             {"id": other_teacher, "t": other_tenant},

@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy import text
 
 from app.core.security import decode_token, hash_password
-from tests.auth_support import unique_phone
+from tests.auth_support import seed_subscription, unique_phone
 
 pytestmark = [
     pytest.mark.integration,
@@ -58,6 +58,7 @@ async def course_seed(owner_engine) -> CourseSeed:
             text("INSERT INTO tenant (id, name) VALUES (:id, :name)"),
             {"id": tenant_id, "name": f"课程机构-{uuid4().hex[:8]}"},
         )
+        await seed_subscription(connection, tenant_id)
         for item_id, name in ((teacher_id, "带班老师"), (other_teacher_id, "别班老师")):
             await connection.execute(
                 text("INSERT INTO teacher (id, tenant_id, name) VALUES (:id, :tenant, :name)"),
@@ -530,6 +531,7 @@ async def test_cross_tenant_course_and_class_are_invisible(client, owner_engine,
             text("INSERT INTO tenant (id, name) VALUES (:id, :name)"),
             {"id": other_tenant, "name": f"别家机构-{uuid4().hex[:8]}"},
         )
+        await seed_subscription(connection, other_tenant)
         await connection.execute(
             text("INSERT INTO course (id, tenant_id, name) VALUES (:id, :tenant, '别家课程')"),
             {"id": foreign_course, "tenant": other_tenant},

@@ -20,7 +20,7 @@ from sqlalchemy import text
 
 from app.core.security import hash_password
 from app.services.ledger import BUSINESS_TZ
-from tests.auth_support import unique_openid, unique_phone
+from tests.auth_support import seed_subscription, unique_openid, unique_phone
 
 pytestmark = [
     pytest.mark.integration,
@@ -107,6 +107,7 @@ async def notify_seed(owner_engine) -> NotifySeed:
             await connection.execute(
                 text("INSERT INTO tenant (id, name) VALUES (:id, :name)"), {"id": tid, "name": name}
             )
+            await seed_subscription(connection, tid)
         await connection.execute(
             text("INSERT INTO teacher (id, tenant_id, name) VALUES (:id, :t, '老师')"),
             {"id": teacher_id, "t": tenant_id},

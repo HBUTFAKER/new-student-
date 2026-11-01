@@ -26,7 +26,7 @@ from app.db.session import AsyncSessionFactory
 from app.db.tenant import tenant_context
 from app.services.ledger import BUSINESS_TZ, business_today
 from app.services.lesson import create_lesson
-from tests.auth_support import unique_phone
+from tests.auth_support import seed_subscription, unique_phone
 
 pytestmark = [
     pytest.mark.integration,
@@ -76,6 +76,7 @@ async def conflict_seed(owner_engine) -> ConflictSeed:
             text("INSERT INTO tenant (id, name) VALUES (:id, :name)"),
             {"id": tenant_id, "name": f"冲突机构-{uuid4().hex[:8]}"},
         )
+        await seed_subscription(connection, tenant_id)
         for teacher_id in (teacher1, teacher2):
             await connection.execute(
                 text("INSERT INTO teacher (id, tenant_id, name) VALUES (:id, :t, '老师')"),

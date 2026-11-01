@@ -39,6 +39,7 @@ from app.schemas.me import (
     SubscribeTemplateItem,
     SubscribeTemplateList,
 )
+from app.schemas.subscription import SubscriptionStatusResponse
 from app.services.auth import switch_active_student, wechat_bindings
 from app.services.bindings import redeem_invite_code
 from app.services.notification import (
@@ -54,6 +55,7 @@ from app.services.portal import (
     resolve_schedule_window,
 )
 from app.services.subscribe import record_subscribe_auths
+from app.services.subscription import get_subscription_status, owner_session
 
 router = APIRouter(prefix="/me", tags=["me"])
 
@@ -422,3 +424,24 @@ async def mark_notifications_read(
     parent_ids = await _my_parent_ids(db, principal)
     marked = await mark_read(db, parent_ids=parent_ids, ids=payload.ids)
     return MeReadResponse(marked=marked)
+
+
+@router.get(
+    "/subscription",
+    response_model=SubscriptionStatusResponse,
+    summary="订阅状态（前端横幅数据源）",
+)
+async def my_subscription(principal: CurrentPrincipal) -> SubscriptionStatusResponse:
+    """7.2：任意机构内角色可调；家长端不做横幅但本接口不限制。读的是平台层订阅行。"""
+
+    tenant_id = principal.tenant_id
+    if tenant_id is None:
+        raise AppError(403, "OUT_OF_SCOPE", "仅机构账号可访问")
+    async with owner_session() as db:
+        status = await get_subscription_status(db, tenant_id)
+    return SubscriptionStatusResponse(
+        plan_name=status.plan_name,
+        end_date=status.end_date,
+        days_left=status.days_left,
+        expired=status.expired,
+    )

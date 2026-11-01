@@ -8,11 +8,50 @@
 > - 发令部：读 §0 最新一块 + §4 已锁定约定，再出指令。别只看 01~07 原文，那是基线，不是现状。
 > - 开发：动表结构、动既有测试、动已上线接口前，先读 §1 与 §2。
 
-当前状态：**阶段 3 收官（3.5 完成）**，Alembic head = `0011_subscribe_auth_quota`，全库 26 张表（业务层 19 张）。**阶段 4 收官**：4.1 前端骨架 + 4.2 档案与班级管理页 + 4.3 排课日历与拖拽调课 + 4.4 上（三个只读报表接口）+ 4.4 下（报表前端页）全部完成。4.4 上是阶段 4 唯一动后端的部分：零迁移、零新表。**阶段 5 进行中**：5.1 家长端小程序骨架 + 登录 + 请求封装、5.2 邀请码绑定 + 多孩子切换 + 管理端发码入口、5.3 课表/余额/扣课明细（三个 `/me` 只读接口 + 小程序三页 + 首页改工作台）、5.4 订阅授权收集（迁移 `0011` 给 `subscribe_auth` 加 `available_count` / `updated_at` + 两个 `/me` 接口 + 小程序自动授权与「通知设置」页）均已完成。5.3 是阶段 5 首次动后端（零迁移）；5.4 是阶段 5 第二个动后端的步骤（**加列不加表**，表数仍 26）。5.5 站内信 / 红点兜底是阶段 5 收官步：**加第 27 张表 `in_app_message`**（业务层 20），写入只挂签到扣课一个钩子，配三个 `/me` 读接口与小程序消息页 + 首页红点。**阶段 6 开篇（6.1 通知中心引擎）已完成**：加第 28 张表 `notification`（业务层 21），只做机制（幂等入队 + 状态机 + 重试 + worker + 通道适配器），不接具体业务事件。**6.2 微信订阅通道已完成**：`register_channel("wechat_subscribe", …)` 接到 6.1 引擎上，原子扣额度 + 降级 + 管理端测试接口，**零迁移、表数不变（28 / 业务 21）**。**6.3 服务号 + 短信通道已完成**：`channels` 数组从「全部尝试」改成「有序降级链、第一个成功即停」，新增 `wechat_mp` / `sms` 两通道 + `org_config.sms_daily_budget` 短信日预算列（迁移 `0014`，**加列不加表**）+ 管理端当日用量查询。另有 **5.4 补丁** `9a6ebd9`：修单次加课并发占位死锁（`40P01` → 409，越界改了排课写路径，可单独 revert）。**6.4 定时任务 + 漏发补偿已完成（阶段 6 收官）**：自写 asyncio 调度器（不上 APScheduler/Celery）接管 6.1 worker（互斥），驱动上课提醒（提前 1 天 + 1 小时，`org_config.lesson_reminder_hours`）与余额预警（≤5 课时，`org_config.balance_alert_threshold`，0=关）两条业务事件；wechat_subscribe 改 `ChannelSkipped` 纳入完整降级链（订阅 → 服务号 → 短信 → 站内信）；夜间静默 22:00–08:00；`sms_daily_budget` 默认 50→200；迁移 `0015`（**加列不加表**，表数仍 28 / 业务 21）；`GET /admin/notifications/stats` + `POST /admin/notifications/{id}/retry` 两个管理端接口；1000 条模拟验收通过（950 成功 / 50 漏发→retry 全救回）。**7.1 机构自助注册开通已完成（阶段 7 开工）**：公开 `POST /platform/register`（无认证，注册三件套=机构名+管理员手机号+密码）+ 试用版套餐（14 天，`_ensure_trial_plan` 插行不加表）+ web `/register` 注册页（守卫白名单），手动开通 `POST /platform/tenants` 保留不变；**零新表零加列零迁移**，表数仍 28 / 业务 21。**US-301 员工账号管理已完成（一期 P0 补齐）**：`POST/GET/PATCH /staff` + `DELETE /me/account` 四接口 + 复号复活（同 `(tenant_id, phone)` 停用账号覆盖置回 active）+ 防呆（`CANNOT_DISABLE_SELF`/`LAST_ADMIN`）+ web 员工账号页与顶栏注销入口；**零新表零加列零迁移**，表数仍 28 / 业务 21。
+当前状态：**阶段 3 收官（3.5 完成）**，Alembic head = `0011_subscribe_auth_quota`，全库 26 张表（业务层 19 张）。**阶段 4 收官**：4.1 前端骨架 + 4.2 档案与班级管理页 + 4.3 排课日历与拖拽调课 + 4.4 上（三个只读报表接口）+ 4.4 下（报表前端页）全部完成。4.4 上是阶段 4 唯一动后端的部分：零迁移、零新表。**阶段 5 进行中**：5.1 家长端小程序骨架 + 登录 + 请求封装、5.2 邀请码绑定 + 多孩子切换 + 管理端发码入口、5.3 课表/余额/扣课明细（三个 `/me` 只读接口 + 小程序三页 + 首页改工作台）、5.4 订阅授权收集（迁移 `0011` 给 `subscribe_auth` 加 `available_count` / `updated_at` + 两个 `/me` 接口 + 小程序自动授权与「通知设置」页）均已完成。5.3 是阶段 5 首次动后端（零迁移）；5.4 是阶段 5 第二个动后端的步骤（**加列不加表**，表数仍 26）。5.5 站内信 / 红点兜底是阶段 5 收官步：**加第 27 张表 `in_app_message`**（业务层 20），写入只挂签到扣课一个钩子，配三个 `/me` 读接口与小程序消息页 + 首页红点。**阶段 6 开篇（6.1 通知中心引擎）已完成**：加第 28 张表 `notification`（业务层 21），只做机制（幂等入队 + 状态机 + 重试 + worker + 通道适配器），不接具体业务事件。**6.2 微信订阅通道已完成**：`register_channel("wechat_subscribe", …)` 接到 6.1 引擎上，原子扣额度 + 降级 + 管理端测试接口，**零迁移、表数不变（28 / 业务 21）**。**6.3 服务号 + 短信通道已完成**：`channels` 数组从「全部尝试」改成「有序降级链、第一个成功即停」，新增 `wechat_mp` / `sms` 两通道 + `org_config.sms_daily_budget` 短信日预算列（迁移 `0014`，**加列不加表**）+ 管理端当日用量查询。另有 **5.4 补丁** `9a6ebd9`：修单次加课并发占位死锁（`40P01` → 409，越界改了排课写路径，可单独 revert）。**6.4 定时任务 + 漏发补偿已完成（阶段 6 收官）**：自写 asyncio 调度器（不上 APScheduler/Celery）接管 6.1 worker（互斥），驱动上课提醒（提前 1 天 + 1 小时，`org_config.lesson_reminder_hours`）与余额预警（≤5 课时，`org_config.balance_alert_threshold`，0=关）两条业务事件；wechat_subscribe 改 `ChannelSkipped` 纳入完整降级链（订阅 → 服务号 → 短信 → 站内信）；夜间静默 22:00–08:00；`sms_daily_budget` 默认 50→200；迁移 `0015`（**加列不加表**，表数仍 28 / 业务 21）；`GET /admin/notifications/stats` + `POST /admin/notifications/{id}/retry` 两个管理端接口；1000 条模拟验收通过（950 成功 / 50 漏发→retry 全救回）。**7.1 机构自助注册开通已完成（阶段 7 开工）**：公开 `POST /platform/register`（无认证，注册三件套=机构名+管理员手机号+密码）+ 试用版套餐（14 天，`_ensure_trial_plan` 插行不加表）+ web `/register` 注册页（守卫白名单），手动开通 `POST /platform/tenants` 保留不变；**零新表零加列零迁移**，表数仍 28 / 业务 21。**US-301 员工账号管理已完成（一期 P0 补齐）**：`POST/GET/PATCH /staff` + `DELETE /me/account` 四接口 + 复号复活（同 `(tenant_id, phone)` 停用账号覆盖置回 active）+ 防呆（`CANNOT_DISABLE_SELF`/`LAST_ADMIN`）+ web 员工账号页与顶栏注销入口；**零新表零加列零迁移**，表数仍 28 / 业务 21。**7.2 计费降级已完成**：到期只读闸门（写全拦 402 `SUBSCRIPTION_EXPIRED`）+ 手动续费 `POST /platform/tenants/{id}/renew` + 到期提醒横幅（≤7 天提示、≤3 天红、到期红只读）；**零新表零加列零迁移**，表数仍 28 / 业务 21。
 
 ---
 
 ## §0 交接区（最新在最上面）
+
+### [7.2] 2026-11-02 · 计费降级（到期只读闸门 + 续费 + 到期提醒横幅）· commit 见 git log
+
+**我改了什么**
+
+后端（**零新表零加列零迁移**，表数仍 28 / 业务层 21）
+
+1. `app/services/subscription.py`（新）：`SubscriptionStatus` / `RenewResult` + `owner_session()`（每次新建 owner engine + dispose，读平台层 `tenant_subscription`/`plan` 绕 RLS）+ `get_subscription_status`（`days_left = end_date - today`，`expired = today > end_date`）+ `is_subscription_expired` + `renew_subscription`（从 `max(today, end_date)` 顺延 `days` 天，换 `plan_id` 校验存在）。查不到订阅行 500 `SUBSCRIPTION_MISSING`（provision_tenant 保证一定有，暴露问题不静默放行）。
+2. `app/main.py`：`subscription_gate` 中间件（**默认拦写** `POST/PATCH/PUT/DELETE`，只放 `/auth/*` + `platform_admin` + 无租户身份；无 token / 无效 token 交下游统一 401/权限处理），到期返回 402 `SUBSCRIPTION_EXPIRED`；读接口（GET/HEAD/OPTIONS）天然放行。gate 直接返回 JSONResponse（不 raise 避开中间件异常链），在 `request_logging` 之前注册保证 gate 先执行。
+3. `GET /me/subscription`（`app/api/routes/me.py`）：任意机构内角色可调，`tenant_id=None` → 403 `OUT_OF_SCOPE`；前端横幅数据源。
+4. `POST /platform/tenants/{tenant_id}/renew`（`app/api/routes/platform.py`）：platform_admin，`{days≥1, plan_id?}`，从 `max(today, end_date)` 顺延；plan 不存在 404 `PLAN_NOT_FOUND`、订阅不存在 404 `SUBSCRIPTION_NOT_FOUND`；续费即时生效（无缓存）。只做接口不做 UI（平台后台归 7.4）。
+5. `app/services/notification_events.py`：`scan_lesson_reminders` / `scan_balance_alerts` 改用 `_active_tenant_ids`（join `tenant_subscription` 过滤 `end_date >= today`）——到期租户新事件不再产生；已 enqueue 未发的照发（不追缴不撤回，通知引擎状态机一行没动）。
+
+前端（`web/`）
+
+6. `AdminLayout.vue`：顶栏之下内容区之上加 `el-alert` 横幅（`days_left>7` 不显示；`7≥>3` 黄「{plan_name} 剩余 X 天」；`3≥≥0` 红加急；已到期红「服务已到期，当前为只读模式」），登录后 onMounted 拉 `/me/subscription`。
+7. `http.ts`：402 全局拦截一次性 toast（`subscriptionExpiredNotified` 防抖，同一会话只弹一次）。
+8. **0.5 Playwright 补账发现的 bug 就地修**：`AdminLayout.vue` 注销表单、`StaffView.vue` 重置密码表单都缺 `:model`，Element Plus 校验永远读到空值 → 两功能前端失效（后端正常，040 后端测试没暴露）。补 `:model` + `reactive` 对象修复。
+9. 小程序 `request-core.js`：402 默认文案「机构服务已到期」。
+
+测试：`tests/test_subscription.py` 10 项真库——①到期边界（end_date=today 可写 / today-1 写 402 读 200）②全角色（admin/registrar/teacher/parent）写 402、`/auth/login` 照常 200 ③platform_admin 豁免 ④续费 +30 天恢复写 + 换 plan_id 生效 + 已过期从今天起算 ⑤renew 防越权（admin/registrar/teacher 调 renew 403）⑥renew plan 不存在 404 ⑦调度器跳过到期租户（0 条新通知，未到期对照正常）⑧已 enqueue 的 pending 到期后仍照发 ⑨`/me/subscription` days_left/expired 计算 ⑩写闸门跨平台接口。测试基建：`auth_support.py` 的 `seed_staff`/`seed_family` 自动补订阅；另 12 个直接 `INSERT INTO tenant` 的测试文件（archive/attendance/conflict/course_classes/ledger/lesson_generation/lesson_ops/me_notifications/schedule_rule/tenant_holiday/phase1/phase2）统一补 `seed_subscription`（写闸门依赖订阅行，否则「查不到订阅」当 500）。
+
+**0.5 Playwright 补账（040 欠账已还）**：`scripts/smoke_playwright.py`（新）驱动本机 Edge，起本地 PG + uvicorn 真后端 + vite dev，**10 条断言全过、0 条控制台报错**——admin 新建员工→列表新行；停用二次确认→状态变「停用」；teacher 直输 `/staff`→403；teacher 注销→跳登录且再登录 401「账号已停用」；改库 `end_date`=昨天→红横幅→保存写操作 402 文案→改回未来→横幅消失→保存成功。
+
+**验证**：零迁移（alembic head 仍 `0015`）；全量真库 `374 passed / 6 failed`（364 → 374，净 +10；6 个失败均为**既存** Windows 事件循环 flaky——test_conflict×4 / test_ledger×1 / test_me_notifications×1，隔离跑即过，CI Linux 不受影响）；`ruff check` 全过；web `vue-tsc --noEmit` 过。
+
+**必须跟着改的地方**
+
+1. 到期行为设计文档未定义 → 本步确立「只读降级 + 402」口径，7.4 平台后台沿用；前端写按钮**未逐一禁用**（后端闸门兜底），到期横幅负责说明「保存失败原因」。
+2. 试用版限额（100 学生/1000 消息）本步**不校验**（7.3 计量授权的事），别越界。
+3. `tenant_subscription`/`plan` 是平台层表、`app_user` 无 SELECT 权限 → 订阅查询/续费必须走 owner 连接（`migration_database_url`），与调度器/worker 同口径。
+4. 续费只做接口没做 UI（7.4 平台后台）；家长端无横幅但 `/me/subscription` 不限制。
+5. 写闸门是全局中间件，**所有直接建租户的测试 seed 都必须补订阅行**——新增测试别再用裸 `INSERT INTO tenant`，用 `seed_staff`/`seed_family` 或补 `seed_subscription`。
+
+**给发令部的指令**
+
+- 7.2 到期只读降级已落地：到期登录正常、读全放行、写全 402 `SUBSCRIPTION_EXPIRED`；到期机构新通知不再产生、已 enqueue 照发；续费即时恢复。前端横幅 ≤7 天提示、≤3 天变红、到期红只读。
+- 040 的 Playwright 欠账已还（10 断言全过、0 控制台报错），顺带修掉两个缺 `:model` 的前端表单 bug（注销 + 重置密码）。
+- 05-api-spec 补了 1.5「订阅状态与续费」节（`/me/subscription` + `/platform/tenants/{id}/renew` + 402 写闸门口径）。
 
 ### [US-301] 2026-11-02 · 员工账号管理（一期 P0 补齐 + 停用/注销/复号）
 

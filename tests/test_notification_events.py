@@ -61,6 +61,7 @@ async def seed(owner_engine, request) -> Seed:
 
     parent_count = getattr(request, "param", 2)
     tenant_id, teacher_id = uuid4(), uuid4()
+    plan_id = uuid4()
     classroom_id, course_id, class_id = uuid4(), uuid4(), uuid4()
     student_id = uuid4()
     parent_ids = tuple(uuid4() for _ in range(parent_count))
@@ -68,6 +69,22 @@ async def seed(owner_engine, request) -> Seed:
     async with owner_engine.begin() as connection:
         await connection.execute(
             text("INSERT INTO tenant (id, name) VALUES (:id, '提醒事件机构')"), {"id": tenant_id}
+        )
+        # 7.2 起扫描只挑未到期租户（join subscription），seed 补一条远未来的订阅。
+        await connection.execute(
+            text(
+                "INSERT INTO plan (id, name, max_students, max_messages, price) "
+                "VALUES (:id, '测试套餐', 100, 1000, 0)"
+            ),
+            {"id": plan_id},
+        )
+        await connection.execute(
+            text(
+                "INSERT INTO tenant_subscription "
+                "(id, tenant_id, plan_id, start_date, end_date, status) "
+                "VALUES (:id, :t, :p, '2026-01-01', '2099-12-31', 'active')"
+            ),
+            {"id": uuid4(), "t": tenant_id, "p": plan_id},
         )
         await connection.execute(
             text("INSERT INTO teacher (id, tenant_id, name) VALUES (:id, :t, '老师')"),

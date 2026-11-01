@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.core.config import get_settings
 from app.core.security import hash_password
-from tests.auth_support import unique_openid, unique_phone
+from tests.auth_support import seed_subscription, unique_openid, unique_phone
 
 pytestmark = [
     pytest.mark.integration,
@@ -59,6 +59,7 @@ async def archive_seed(owner_engine) -> ArchiveSeed:
             text("INSERT INTO tenant (id, name) VALUES (:id, :name)"),
             {"id": tenant_id, "name": f"档案机构-{uuid4().hex[:8]}"},
         )
+        await seed_subscription(connection, tenant_id)
         await connection.execute(
             text("INSERT INTO course (id, tenant_id, name) VALUES (:id, :tenant, '物理')"),
             {"id": course_id, "tenant": tenant_id},
@@ -347,6 +348,7 @@ async def test_cross_tenant_binding_and_invite_reads_are_empty(
             text("INSERT INTO tenant (id, name) VALUES (:id, :name)"),
             {"id": other_tenant, "name": f"隔离机构-{uuid4().hex[:8]}"},
         )
+        await seed_subscription(connection, other_tenant)
         await connection.execute(
             text("INSERT INTO student (id, tenant_id, name) VALUES (:id, :tenant, '他租学生')"),
             {"id": other_student, "tenant": other_tenant},

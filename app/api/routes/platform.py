@@ -1,5 +1,7 @@
 """Platform administration endpoints (provisioning foundation)."""
 
+from uuid import UUID
+
 from fastapi import APIRouter, Depends
 
 from app.api.deps import DbSession
@@ -10,6 +12,8 @@ from app.schemas.platform import (
     TenantCreateRequest,
     TenantCreateResponse,
 )
+from app.schemas.subscription import RenewRequest, RenewResponse
+from app.services.subscription import owner_session, renew_subscription
 from app.services.tenant_provisioning import TRIAL_DAYS, provision_tenant
 
 router = APIRouter(prefix="/platform", tags=["platform"])
@@ -67,4 +71,31 @@ async def register(payload: RegisterRequest, db: DbSession) -> RegisterResponse:
         admin_phone=provisioned.admin_phone,
         plan_id=provisioned.plan_id,
         trial_end_date=provisioned.subscription_end_date,
+    )
+
+
+@router.post(
+    "/tenants/{tenant_id}/renew",
+    response_model=RenewResponse,
+    summary="手动续费（平台管理员）",
+    dependencies=[Depends(require_role("platform_admin"))],
+)
+async def renew_tenant(tenant_id: UUID, payload: RenewRequest) -> RenewResponse:
+    """7.2：从 ``max(today, end_date)`` 起顺延 ``days`` 天；带 ``plan_id`` 则同时换套餐。
+
+    续费即时生效（无缓存）。本步只做接口，web UI 归 7.4 平台后台。
+    """
+
+    async with owner_session() as db:
+        async with db.begin():
+            result = await renew_subscription(
+                db,
+                tenant_id=tenant_id,
+                days=payload.days,
+                plan_id=payload.plan_id,
+            )
+    return RenewResponse(
+        end_date=result.end_date,
+        plan_id=result.plan_id,
+        plan_name=result.plan_name,
     )

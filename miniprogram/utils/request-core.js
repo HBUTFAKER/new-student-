@@ -40,6 +40,7 @@ function defaultMessage(status) {
   if (status === 0) return '网络连接失败，请检查网络或服务地址'
   if (status === 400) return '请求参数有误'
   if (status === 401) return '登录已失效，请重新登录'
+  if (status === 402) return '机构服务已到期'
   if (status === 403) return '没有权限查看该内容'
   if (status === 404) return '请求的资源不存在'
   if (status === 409) return '数据冲突，请刷新后重试'

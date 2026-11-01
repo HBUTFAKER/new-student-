@@ -34,7 +34,7 @@ from app.core.security import decode_token, hash_password
 from app.db.session import AsyncSessionFactory
 from app.db.tenant import tenant_context
 from app.services.ledger import deduct_lessons
-from tests.auth_support import unique_phone
+from tests.auth_support import seed_subscription, unique_phone
 
 pytestmark = [
     pytest.mark.integration,
@@ -121,6 +121,7 @@ async def phase2_seed(client: httpx.AsyncClient, owner_engine) -> PhaseSeed:
                 id=tid,
                 name=name,
             )
+            await seed_subscription(connection, tid)
         for cid, tid, name, subject in (
             (course_id, tenant_id, "初中物理", "物理"),
             (math_course_id, tenant_id, "初中数学", "数学"),
