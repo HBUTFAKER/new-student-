@@ -14,7 +14,7 @@
 
 ## §0 交接区（最新在最上面）
 
-### [5.5] 2026-11-01 13:30 · commit `cc7eee8`（后端）+ `391c692`（小程序），阶段 5 收官
+### [5.5] 2026-11-01 13:30 · commit `cc7eee8`（后端）+ `391c692`（小程序），已推送；CI `41277395020` 四 job 全绿（首次即过）
 
 **我改了什么**
 
@@ -36,6 +36,15 @@
 6. `utils/messages.js` 纯逻辑（11 项 node:test）：红点 99+ 截断、行装饰、单条 / 全部已读的本地状态推进。
 7. `pages/messages/`：倒序列表、未读圆点、点单条置已读、顶部「全部已读」、下拉刷新、上拉加载、空态「暂无消息」。
 8. 首页头部加「消息」入口 + 红点数字，**onShow 拉一次** `unread-count`，不做轮询；拉取失败静默。
+
+**验证（本地实跑）**
+
+- 全新库 `python -m pytest -q`（`RUN_DB_TESTS=1` + `alembic upgrade head`）：**296 passed**（原 281 + 新增 10 项 `tests/test_me_notifications.py` + 表数从 26→27 让参数化的「每张表都有 RLS / 授权」多出 5 项）。
+- `node --test`：request-core 15 + session 22 + portal 20 + subscribe 18 + messages 11 = **86 项全过**。
+- 真后端冒烟（`uvicorn` + `scripts.seed_demo`，端口 8025）：**88 项全过**（84 → +4 读侧检查）。
+- 迁移实跑：`alembic upgrade head` 到 `0012_in_app_message`，确认唯一键、索引（`created_at DESC`）、RLS 强制与 `app_user` 授权都在。
+- 静态校验（本机无微信开发者工具）：9 页四件套齐全、全部 js `node --check`、全部 json 可解析、WXML 标签栈闭合。
+- `web/` 一行未动（本步不涉及管理端）。
 
 **必须跟着改的地方**
 
