@@ -8,11 +8,47 @@
 > - 发令部：读 §0 最新一块 + §4 已锁定约定，再出指令。别只看 01~07 原文，那是基线，不是现状。
 > - 开发：动表结构、动既有测试、动已上线接口前，先读 §1 与 §2。
 
-当前状态：**阶段 3 收官（3.5 完成）**，Alembic head = `0011_subscribe_auth_quota`，全库 26 张表（业务层 19 张）。**阶段 4 收官**：4.1 前端骨架 + 4.2 档案与班级管理页 + 4.3 排课日历与拖拽调课 + 4.4 上（三个只读报表接口）+ 4.4 下（报表前端页）全部完成。4.4 上是阶段 4 唯一动后端的部分：零迁移、零新表。**阶段 5 进行中**：5.1 家长端小程序骨架 + 登录 + 请求封装、5.2 邀请码绑定 + 多孩子切换 + 管理端发码入口、5.3 课表/余额/扣课明细（三个 `/me` 只读接口 + 小程序三页 + 首页改工作台）、5.4 订阅授权收集（迁移 `0011` 给 `subscribe_auth` 加 `available_count` / `updated_at` + 两个 `/me` 接口 + 小程序自动授权与「通知设置」页）均已完成。5.3 是阶段 5 首次动后端（零迁移）；5.4 是阶段 5 第二个动后端的步骤（**加列不加表**，表数仍 26）。5.5 站内信 / 红点兜底是阶段 5 收官步：**加第 27 张表 `in_app_message`**（业务层 20），写入只挂签到扣课一个钩子，配三个 `/me` 读接口与小程序消息页 + 首页红点。**阶段 6 开篇（6.1 通知中心引擎）已完成**：加第 28 张表 `notification`（业务层 21），只做机制（幂等入队 + 状态机 + 重试 + worker + 通道适配器），不接具体业务事件。**6.2 微信订阅通道已完成**：`register_channel("wechat_subscribe", …)` 接到 6.1 引擎上，原子扣额度 + 降级 + 管理端测试接口，**零迁移、表数不变（28 / 业务 21）**。**6.3 服务号 + 短信通道已完成**：`channels` 数组从「全部尝试」改成「有序降级链、第一个成功即停」，新增 `wechat_mp` / `sms` 两通道 + `org_config.sms_daily_budget` 短信日预算列（迁移 `0014`，**加列不加表**）+ 管理端当日用量查询。另有 **5.4 补丁** `9a6ebd9`：修单次加课并发占位死锁（`40P01` → 409，越界改了排课写路径，可单独 revert）。**6.4 定时任务 + 漏发补偿已完成（阶段 6 收官）**：自写 asyncio 调度器（不上 APScheduler/Celery）接管 6.1 worker（互斥），驱动上课提醒（提前 1 天 + 1 小时，`org_config.lesson_reminder_hours`）与余额预警（≤5 课时，`org_config.balance_alert_threshold`，0=关）两条业务事件；wechat_subscribe 改 `ChannelSkipped` 纳入完整降级链（订阅 → 服务号 → 短信 → 站内信）；夜间静默 22:00–08:00；`sms_daily_budget` 默认 50→200；迁移 `0015`（**加列不加表**，表数仍 28 / 业务 21）；`GET /admin/notifications/stats` + `POST /admin/notifications/{id}/retry` 两个管理端接口；1000 条模拟验收通过（950 成功 / 50 漏发→retry 全救回）。
+当前状态：**阶段 3 收官（3.5 完成）**，Alembic head = `0011_subscribe_auth_quota`，全库 26 张表（业务层 19 张）。**阶段 4 收官**：4.1 前端骨架 + 4.2 档案与班级管理页 + 4.3 排课日历与拖拽调课 + 4.4 上（三个只读报表接口）+ 4.4 下（报表前端页）全部完成。4.4 上是阶段 4 唯一动后端的部分：零迁移、零新表。**阶段 5 进行中**：5.1 家长端小程序骨架 + 登录 + 请求封装、5.2 邀请码绑定 + 多孩子切换 + 管理端发码入口、5.3 课表/余额/扣课明细（三个 `/me` 只读接口 + 小程序三页 + 首页改工作台）、5.4 订阅授权收集（迁移 `0011` 给 `subscribe_auth` 加 `available_count` / `updated_at` + 两个 `/me` 接口 + 小程序自动授权与「通知设置」页）均已完成。5.3 是阶段 5 首次动后端（零迁移）；5.4 是阶段 5 第二个动后端的步骤（**加列不加表**，表数仍 26）。5.5 站内信 / 红点兜底是阶段 5 收官步：**加第 27 张表 `in_app_message`**（业务层 20），写入只挂签到扣课一个钩子，配三个 `/me` 读接口与小程序消息页 + 首页红点。**阶段 6 开篇（6.1 通知中心引擎）已完成**：加第 28 张表 `notification`（业务层 21），只做机制（幂等入队 + 状态机 + 重试 + worker + 通道适配器），不接具体业务事件。**6.2 微信订阅通道已完成**：`register_channel("wechat_subscribe", …)` 接到 6.1 引擎上，原子扣额度 + 降级 + 管理端测试接口，**零迁移、表数不变（28 / 业务 21）**。**6.3 服务号 + 短信通道已完成**：`channels` 数组从「全部尝试」改成「有序降级链、第一个成功即停」，新增 `wechat_mp` / `sms` 两通道 + `org_config.sms_daily_budget` 短信日预算列（迁移 `0014`，**加列不加表**）+ 管理端当日用量查询。另有 **5.4 补丁** `9a6ebd9`：修单次加课并发占位死锁（`40P01` → 409，越界改了排课写路径，可单独 revert）。**6.4 定时任务 + 漏发补偿已完成（阶段 6 收官）**：自写 asyncio 调度器（不上 APScheduler/Celery）接管 6.1 worker（互斥），驱动上课提醒（提前 1 天 + 1 小时，`org_config.lesson_reminder_hours`）与余额预警（≤5 课时，`org_config.balance_alert_threshold`，0=关）两条业务事件；wechat_subscribe 改 `ChannelSkipped` 纳入完整降级链（订阅 → 服务号 → 短信 → 站内信）；夜间静默 22:00–08:00；`sms_daily_budget` 默认 50→200；迁移 `0015`（**加列不加表**，表数仍 28 / 业务 21）；`GET /admin/notifications/stats` + `POST /admin/notifications/{id}/retry` 两个管理端接口；1000 条模拟验收通过（950 成功 / 50 漏发→retry 全救回）。**7.1 机构自助注册开通已完成（阶段 7 开工）**：公开 `POST /platform/register`（无认证，注册三件套=机构名+管理员手机号+密码）+ 试用版套餐（14 天，`_ensure_trial_plan` 插行不加表）+ web `/register` 注册页（守卫白名单），手动开通 `POST /platform/tenants` 保留不变；**零新表零加列零迁移**，表数仍 28 / 业务 21。
 
 ---
 
 ## §0 交接区（最新在最上面）
+
+### [7.1] 2026-11-02 · 机构自助注册开通（阶段 7 开工）· commit `fa330ea`（后端+前端）
+
+**我改了什么**
+
+后端（**零新表零加列零迁移**，表数仍 28 / 业务层 21）
+
+1. `app/services/tenant_provisioning.py`：
+   - `provision_tenant` 参数化：加 `trial: bool = False` + `subscription_days: int = 365`，**默认参数下行为与手动开通完全一致**（基础版 365 天）。`ProvisionedTenant` 加 `subscription_end_date` 字段。
+   - 新增 `_ensure_trial_plan`：仿 `_ensure_default_plan` 的 advisory lock（`hashtext('platform_trial_plan')`），按 `name='试用版'` 定位、没有则建（`max_students=100, max_messages=1000, price=0`，限额与基础版一致，不给试用打折）。
+   - **差异点（与设计文档）**：`_ensure_default_plan` 从 `ORDER BY created_at LIMIT 1`（"第一个 plan"）改为 `WHERE name='基础版'`——引入试用版后"第一个 plan"不再保证是基础版，手动开通会随机拿到先建的那个套餐，必须精确定位。
+2. `POST /platform/register`（公开无认证，`app/api/routes/platform.py`）：请求体 `{org_name, admin_name, admin_phone, admin_password}`（约束复用 `TenantCreateRequest`），内部复用 `provision_tenant(trial=True, subscription_days=14)`；响应 `201 {tenant_id, name, admin_phone, plan_id, trial_end_date}`，**不返回 token**，不泄露任何既有租户信息。同名机构 409 `TENANT_NAME_EXISTS` 沿用；手机号仍按 `(tenant_id, phone)` 唯一（一人多机构可注册）。
+3. 手动开通 `POST /platform/tenants` 一行没动（platform_admin 专用，基础版 365 天）。
+
+前端（`web/`）
+
+4. `/register` 公开页（`web/src/views/RegisterView.vue`，路由守卫白名单，已登录访问→跳后台首页）：居中卡片 + 顶部渐变条 + 试用说明徽标，五字段（机构名/姓名/手机号/密码/确认密码），Element Plus 校验（手机号 11 位、密码强度=8 位含字母数字、两次一致），提交 loading，错误内联展示（不裸 toast）。
+5. 注册成功 → `router.replace('/login?registered=1&phone=...')`；登录页顶部显示「注册成功，请登录」提示条并预填手机号，底部加「新机构注册」入口。
+6. 请求走现有 http 实例（**未 new axios**）；菜单没加注册项（公开页不是功能页）。
+
+测试：`tests/test_platform_register.py` 6 项真库——①注册全落库 + 试用订阅 14 天 + admin 可登录 ②同名 409 ③跨机构同手机号可注册 ④手动开通回归（基础版 365 天）⑤响应不泄露 token/租户数据 ⑥缺字段/弱密码 422。
+
+**验证**：零迁移（alembic head 仍 `0015`）；全量真库 `353 passed / 6 failed`（346 → 353，净 +6；6 个失败均为既存 Windows 事件循环 flaky——test_conflict×4 / test_ledger×1 / test_me_notifications×1，隔离跑即过，CI Linux 不受影响）；`ruff check`/`format --check` 全过；web `vue-tsc --noEmit && vite build` 过。
+
+**必须跟着改的地方**
+
+1. **到期拦截/只读降级是 7.2**：本步只把订阅窗口建对（`end_date = 注册日 + 14`），**没做任何到期判断**。7.2 按 `tenant_subscription.end_date` 实现降级/只读时，别重复建订阅逻辑。
+2. **防刷一期没做**：完全开放注册、无邀请码无审核无短信验证码（SMS 是 stub）。这是发令部拍板的已知取舍——滥用最多多几个闲置租户。要防刷得先有验证码/频率限制（二期）。
+3. **生产反向代理要加 `/platform/register` 转发**：`web/README.md` 约定生产由反向代理把 `/auth`、`/platform` 等转发到后端，本步没动部署配置（本地 vite 代理 `/api` 已覆盖开发态）。
+4. **试用版/基础版用 `plan.name` 区分**：订阅表里 `plan_id → plan.name` 就是「试用版」/「基础版」，7.4 平台后台直接用它区分试用/正式，别另加标记列。
+
+**给发令部的指令**
+
+- 清单 7.1「自助注册开通」已落地：公开注册接口 + 试用版套餐（14 天）+ web 注册页，浏览器从注册到登录进后台全链路可跑（"10 分钟自助可用"）。
+- 手动开通接口行为零变化（回归测试证明仍基础版 365 天）。
+- 遗留待决策：① 到期拦截（7.2）；② 防刷/验证码（一期不做）；③ 试用版是否要单独限额（当前与基础版一致 100 学生/1000 消息）。
 
 ### [6.4] 2026-11-02 · 定时任务 + 漏发补偿（阶段 6 收官），尚未提交（本地验收通过，待 push）
 
@@ -907,6 +943,10 @@ POST /me/subscribe-auths
 - 模板列表**不要求选孩子**（登录家长即可读），授权上报要求机构上下文。
 - 口径裁决：**订阅授权收集提前到一期（5.4）**；05 §11 的 `POST /notifications/subscribe` 行作废，改由上面两个接口承担；**发送通道仍是 6.2**，本步一行发送逻辑都没写。
 
+### 2.8 新增：公开自助注册（7.1）
+
+`POST /platform/register`（无认证，公开）：请求 `{org_name, admin_name, admin_phone, admin_password}`（约束同 `TenantCreateRequest`），复用 `provision_tenant` 走试用版 + 14 天；响应 `201 {tenant_id, name, admin_phone, plan_id, trial_end_date}`，**不返回 token**（注册完走正常登录）。同名机构 409 `TENANT_NAME_EXISTS`。
+
 ### 2.7 尚未实现（后置，不是遗漏）
 
 | 项 | 出处 | 归属 |
@@ -984,4 +1024,5 @@ POST /me/subscribe-auths
 | 6.1 | `680b4e0` | 通知中心引擎（阶段 6 开篇，只做机制不接事件）：**新增第 28 张表 `notification`**（业务层 21），`dedupe_key` 全局唯一 + 入队 `ON CONFLICT DO NOTHING`；通道适配器 Protocol + `register_channel`，本步只注册 `in_app`（写 `in_app_message` 幂等键同构、按家长 SAVEPOINT）；`process_pending_notifications` 三态状态机 + `FOR UPDATE SKIP LOCKED` + 指数退避 30s/2min/8min + `succeeded_channels` 部分成功不重发；lifespan 起进程内 worker（owner 连接绕 RLS，env 开关可关）；`updated_at` 是第 3 张带它的表、`(status,next_retry_at)` 索引是不从 tenant_id 起的登记例外。测试 9 项真库 |
 | 6.2 | `848a910` | 微信订阅消息通道（零迁移）：`WechatSubscribeChannel` 接 6.1 注册表；one_time 原子扣额度（`WHERE available_count > 0`）→ 发送 → 失败退还 + 临时重试/永久降级；额度耗尽/无授权/无 openid/scene 不存在/永久拒绝全部降级写站内信不重试；long_term 有授权即发不扣额度；`StubWechatSubscribeClient` + `RealWechatSubscribeClient`（生产 env 切换）；`POST /admin/notifications/test` 人工验证接口（`test:{uuid4}` 故意不幂等）。测试 14 项真库 |
 | 6.3 | `6ff890a` | 服务号 + 短信通道（降级链 + 日预算，零新表）：`channels` 数组改为「有序降级链、第一个成功即停」；`ChannelSkipped` 异常表达「本级永久跳过继续下一级」；新增 `wechat_mp`（未关注/未配置/超时 → 跳过，临时 → 重试）+ `sms`（无手机号/未配置/超预算 → 跳过）；迁移 `0014` 给 `org_config` 加 `sms_daily_budget`（默认 50），发送前 COUNT 当日成功条数达预算即跳过；`GET /admin/sms-usage` 查当日用量。测试 10 项真库 + 2 项老语义改写 |
-| 6.4 | （未提交） | 定时任务 + 漏发补偿（阶段 6 收官，零新表）：自写 asyncio 调度器接管 6.1 worker（互斥）；上课提醒（提前 1 天/1 小时）+ 余额预警（≤5 课时）两条事件、按家长拆分 enqueue、夜间静默 22:00–08:00；wechat_subscribe 改 `ChannelSkipped` 纳入完整降级链（订阅→服务号→短信→站内信）；迁移 `0015` 给 `org_config` 加 `lesson_reminder_hours`/`balance_alert_threshold` + `sms_daily_budget` 默认 50→200；`GET /admin/notifications/stats` + `POST /admin/notifications/{id}/retry`；`scripts/simulate_notifications.py` 1000 条验收（950 成功/50 漏发→retry 全救回）。测试 +18 项 |
+| 6.4 | `ded83ac` | 定时任务 + 漏发补偿（阶段 6 收官，零新表）：自写 asyncio 调度器接管 6.1 worker（互斥）；上课提醒（提前 1 天/1 小时）+ 余额预警（≤5 课时）两条事件、按家长拆分 enqueue、夜间静默 22:00–08:00；wechat_subscribe 改 `ChannelSkipped` 纳入完整降级链（订阅→服务号→短信→站内信）；迁移 `0015` 给 `org_config` 加 `lesson_reminder_hours`/`balance_alert_threshold` + `sms_daily_budget` 默认 50→200；`GET /admin/notifications/stats` + `POST /admin/notifications/{id}/retry`；`scripts/simulate_notifications.py` 1000 条验收（950 成功/50 漏发→retry 全救回）。测试 +18 项 |
+| 7.1 | `fa330ea` | 机构自助注册开通（阶段 7 开工，**零新表零加列零迁移**）：`provision_tenant` 参数化（`trial` + `subscription_days`，默认行为不变）+ `_ensure_trial_plan`（试用版，限额同基础版）；公开 `POST /platform/register`（无认证，响应无 token）；`_ensure_default_plan` 由「第一个 plan」改为 `WHERE name='基础版'`（修手动开通拿错套餐）；web `/register` 页（五字段校验）+ 登录页注册入口/成功提示；手动开通接口回归不变。测试 +6 项 |
