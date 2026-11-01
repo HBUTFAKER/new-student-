@@ -40,6 +40,24 @@
 - **请求**：`{ "refresh_token": "eyJ…" }`
 - **响应 200**：`{ "access_token": "eyJ…", "refresh_token": "eyJ…", "token_type": "bearer", "expires_in": 7200 }`；**错误**：401 `TOKEN_EXPIRED` / `TOKEN_INVALID`
 
+### 1.4 员工账号管理（US-301，040 落地，零新表）
+| 接口 | 权限 |
+|------|------|
+| `POST /staff` | ✅仅管理员 |
+| `GET /staff`（?page=&page_size=） | ✅仅管理员 |
+| `PATCH /staff/{id}` | ✅仅管理员 |
+| `DELETE /me/account` | ✅任何员工（本人，验密码） |
+
+- **POST 请求**：`{ "name": "张老师", "phone": "138…", "role": "teacher"|"registrar"|"admin", "password": "8~72字符", "teacher_id": "uuid|null" }`
+- **POST 响应**：新建 `201` / 复活 `200`，均为 `{ "id", "name", "phone", "role", "status", "teacher_id", "created_at", "revived": bool }`
+- **复号复活**：同 `(tenant_id, phone)` 已有 `inactive` 账号 → 复活该行（覆盖 name/password_hash/role/teacher_id 并置回 active，`revived=true`）；已有 `active` → 409 `PHONE_IN_USE`
+- **PATCH 请求**（部分更新）：`{ "status"?: "active"|"inactive", "name"?, "role"?, "teacher_id"?, "password"? }`（`password` 即「重置密码」）
+- **防呆**：停用自己 403 `CANNOT_DISABLE_SELF`；停用/降级最后一个 active admin 403 `LAST_ADMIN`；跨租户 404 `STAFF_NOT_FOUND`（RLS 兜底）
+- **角色约束**：`teacher` 必须带 `teacher_id`（本租户存在，否则 404 `TEACHER_NOT_FOUND`）；`registrar`/`admin` 必须为空（422 `TEACHER_REQUIRED` / `TEACHER_NOT_ALLOWED`）
+- **DELETE /me/account 请求**：`{ "password": "…" }`；密码错 401 `AUTH_FAILED`；最后一个 active admin 403 `LAST_ADMIN`；platform_admin/家长 403 `OUT_OF_SCOPE`；成功 `204`
+- **GET 响应 200**：`{ "items": [{ "id", "name", "phone", "role", "status", "teacher_id", "created_at" }], "total": n }`
+- **说明**：停用沿用 `status='inactive'`（登录与 token 校验已拦截，停用即生效，无需踢下线逻辑）；同手机号多机构登录消歧仍为二期（挂账）。
+
 ## 2. 档案模块
 
 > **1.6 落地说明**：2.1–2.6 全部接口、2.3 教务直绑、2.4 邀请码、9.1 家长自助绑定已实现并通过阶段验收测试。差异与实现口径：

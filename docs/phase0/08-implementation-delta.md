@@ -8,11 +8,46 @@
 > - 发令部：读 §0 最新一块 + §4 已锁定约定，再出指令。别只看 01~07 原文，那是基线，不是现状。
 > - 开发：动表结构、动既有测试、动已上线接口前，先读 §1 与 §2。
 
-当前状态：**阶段 3 收官（3.5 完成）**，Alembic head = `0011_subscribe_auth_quota`，全库 26 张表（业务层 19 张）。**阶段 4 收官**：4.1 前端骨架 + 4.2 档案与班级管理页 + 4.3 排课日历与拖拽调课 + 4.4 上（三个只读报表接口）+ 4.4 下（报表前端页）全部完成。4.4 上是阶段 4 唯一动后端的部分：零迁移、零新表。**阶段 5 进行中**：5.1 家长端小程序骨架 + 登录 + 请求封装、5.2 邀请码绑定 + 多孩子切换 + 管理端发码入口、5.3 课表/余额/扣课明细（三个 `/me` 只读接口 + 小程序三页 + 首页改工作台）、5.4 订阅授权收集（迁移 `0011` 给 `subscribe_auth` 加 `available_count` / `updated_at` + 两个 `/me` 接口 + 小程序自动授权与「通知设置」页）均已完成。5.3 是阶段 5 首次动后端（零迁移）；5.4 是阶段 5 第二个动后端的步骤（**加列不加表**，表数仍 26）。5.5 站内信 / 红点兜底是阶段 5 收官步：**加第 27 张表 `in_app_message`**（业务层 20），写入只挂签到扣课一个钩子，配三个 `/me` 读接口与小程序消息页 + 首页红点。**阶段 6 开篇（6.1 通知中心引擎）已完成**：加第 28 张表 `notification`（业务层 21），只做机制（幂等入队 + 状态机 + 重试 + worker + 通道适配器），不接具体业务事件。**6.2 微信订阅通道已完成**：`register_channel("wechat_subscribe", …)` 接到 6.1 引擎上，原子扣额度 + 降级 + 管理端测试接口，**零迁移、表数不变（28 / 业务 21）**。**6.3 服务号 + 短信通道已完成**：`channels` 数组从「全部尝试」改成「有序降级链、第一个成功即停」，新增 `wechat_mp` / `sms` 两通道 + `org_config.sms_daily_budget` 短信日预算列（迁移 `0014`，**加列不加表**）+ 管理端当日用量查询。另有 **5.4 补丁** `9a6ebd9`：修单次加课并发占位死锁（`40P01` → 409，越界改了排课写路径，可单独 revert）。**6.4 定时任务 + 漏发补偿已完成（阶段 6 收官）**：自写 asyncio 调度器（不上 APScheduler/Celery）接管 6.1 worker（互斥），驱动上课提醒（提前 1 天 + 1 小时，`org_config.lesson_reminder_hours`）与余额预警（≤5 课时，`org_config.balance_alert_threshold`，0=关）两条业务事件；wechat_subscribe 改 `ChannelSkipped` 纳入完整降级链（订阅 → 服务号 → 短信 → 站内信）；夜间静默 22:00–08:00；`sms_daily_budget` 默认 50→200；迁移 `0015`（**加列不加表**，表数仍 28 / 业务 21）；`GET /admin/notifications/stats` + `POST /admin/notifications/{id}/retry` 两个管理端接口；1000 条模拟验收通过（950 成功 / 50 漏发→retry 全救回）。**7.1 机构自助注册开通已完成（阶段 7 开工）**：公开 `POST /platform/register`（无认证，注册三件套=机构名+管理员手机号+密码）+ 试用版套餐（14 天，`_ensure_trial_plan` 插行不加表）+ web `/register` 注册页（守卫白名单），手动开通 `POST /platform/tenants` 保留不变；**零新表零加列零迁移**，表数仍 28 / 业务 21。
+当前状态：**阶段 3 收官（3.5 完成）**，Alembic head = `0011_subscribe_auth_quota`，全库 26 张表（业务层 19 张）。**阶段 4 收官**：4.1 前端骨架 + 4.2 档案与班级管理页 + 4.3 排课日历与拖拽调课 + 4.4 上（三个只读报表接口）+ 4.4 下（报表前端页）全部完成。4.4 上是阶段 4 唯一动后端的部分：零迁移、零新表。**阶段 5 进行中**：5.1 家长端小程序骨架 + 登录 + 请求封装、5.2 邀请码绑定 + 多孩子切换 + 管理端发码入口、5.3 课表/余额/扣课明细（三个 `/me` 只读接口 + 小程序三页 + 首页改工作台）、5.4 订阅授权收集（迁移 `0011` 给 `subscribe_auth` 加 `available_count` / `updated_at` + 两个 `/me` 接口 + 小程序自动授权与「通知设置」页）均已完成。5.3 是阶段 5 首次动后端（零迁移）；5.4 是阶段 5 第二个动后端的步骤（**加列不加表**，表数仍 26）。5.5 站内信 / 红点兜底是阶段 5 收官步：**加第 27 张表 `in_app_message`**（业务层 20），写入只挂签到扣课一个钩子，配三个 `/me` 读接口与小程序消息页 + 首页红点。**阶段 6 开篇（6.1 通知中心引擎）已完成**：加第 28 张表 `notification`（业务层 21），只做机制（幂等入队 + 状态机 + 重试 + worker + 通道适配器），不接具体业务事件。**6.2 微信订阅通道已完成**：`register_channel("wechat_subscribe", …)` 接到 6.1 引擎上，原子扣额度 + 降级 + 管理端测试接口，**零迁移、表数不变（28 / 业务 21）**。**6.3 服务号 + 短信通道已完成**：`channels` 数组从「全部尝试」改成「有序降级链、第一个成功即停」，新增 `wechat_mp` / `sms` 两通道 + `org_config.sms_daily_budget` 短信日预算列（迁移 `0014`，**加列不加表**）+ 管理端当日用量查询。另有 **5.4 补丁** `9a6ebd9`：修单次加课并发占位死锁（`40P01` → 409，越界改了排课写路径，可单独 revert）。**6.4 定时任务 + 漏发补偿已完成（阶段 6 收官）**：自写 asyncio 调度器（不上 APScheduler/Celery）接管 6.1 worker（互斥），驱动上课提醒（提前 1 天 + 1 小时，`org_config.lesson_reminder_hours`）与余额预警（≤5 课时，`org_config.balance_alert_threshold`，0=关）两条业务事件；wechat_subscribe 改 `ChannelSkipped` 纳入完整降级链（订阅 → 服务号 → 短信 → 站内信）；夜间静默 22:00–08:00；`sms_daily_budget` 默认 50→200；迁移 `0015`（**加列不加表**，表数仍 28 / 业务 21）；`GET /admin/notifications/stats` + `POST /admin/notifications/{id}/retry` 两个管理端接口；1000 条模拟验收通过（950 成功 / 50 漏发→retry 全救回）。**7.1 机构自助注册开通已完成（阶段 7 开工）**：公开 `POST /platform/register`（无认证，注册三件套=机构名+管理员手机号+密码）+ 试用版套餐（14 天，`_ensure_trial_plan` 插行不加表）+ web `/register` 注册页（守卫白名单），手动开通 `POST /platform/tenants` 保留不变；**零新表零加列零迁移**，表数仍 28 / 业务 21。**US-301 员工账号管理已完成（一期 P0 补齐）**：`POST/GET/PATCH /staff` + `DELETE /me/account` 四接口 + 复号复活（同 `(tenant_id, phone)` 停用账号覆盖置回 active）+ 防呆（`CANNOT_DISABLE_SELF`/`LAST_ADMIN`）+ web 员工账号页与顶栏注销入口；**零新表零加列零迁移**，表数仍 28 / 业务 21。
 
 ---
 
 ## §0 交接区（最新在最上面）
+
+### [US-301] 2026-11-02 · 员工账号管理（一期 P0 补齐 + 停用/注销/复号）
+
+**我改了什么**
+
+后端（**零新表零加列零迁移**，表数仍 28 / 业务层 21）
+
+1. `app/services/staff_admin.py`（新）：`create_staff_account`（新建/复号复活：同 `(tenant_id, phone)` 已有 `inactive` → 覆盖 name/password_hash/role/teacher_id 置回 active，`active` → 409 `PHONE_IN_USE`）、`update_staff_account`（部分更新 + 两道防呆）、`list_staff_accounts`、`self_deactivate`（验密码置 inactive）。密码一律 `hash_password`（argon2id），禁止空哈希。
+2. `app/api/routes/staff.py`（新）：`POST /staff`（仅 admin，201 新建 / 200 复活 `revived=true`）、`GET /staff`（分页）、`PATCH /staff/{id}`（status/name/role/teacher_id/password 部分更新）、`DELETE /me/account`（任意员工本人，验密码）。`app/schemas/staff.py` 四个 schema。
+3. **防呆（缺一不可，全部有测试）**：停用自己 403 `CANNOT_DISABLE_SELF`；停用/降级最后一个 active admin 403 `LAST_ADMIN`——**先判 LAST_ADMIN 再判 SELF**（唯一 admin 停用自己归 `LAST_ADMIN`，非唯一 admin 停用自己归 `CANNOT_DISABLE_SELF`）；跨租户 404 `STAFF_NOT_FOUND`（RLS 兜底）。
+4. **停用即生效**：没发明「踢下线」，复用 `resolve_principal` 的 `status != active` 校验——旧 access token 下次请求 401（有测试证明）。`login_staff`/`staff_candidates`/`auth_staff_candidates` **一行没动**。
+5. **角色约束**：`teacher` 必须带 `teacher_id`（本租户存在，否则 404 `TEACHER_NOT_FOUND`）；`registrar`/`admin` 必须为空（422 `TEACHER_REQUIRED`/`TEACHER_NOT_ALLOWED`）。PATCH **不改 phone**（唯一键的一部分）。
+
+前端（`web/`）
+
+6. `web/src/views/StaffView.vue`（新，`/staff` 路由 `meta.roles=['admin']`，菜单「员工账号」仅 admin 可见）：列表（姓名/手机号/角色中文/状态 tag 绿灰/关联老师姓名/创建时间）+ 空状态引导；新建弹窗（角色单选、初始密码随机生成+复制、teacher 角色必选老师档案下拉 + 「新建档案」一步完成调 `POST /teachers` 再关联）；停用/启用二次确认（写明「停用后立即无法登录」）；重置密码弹窗；`CANNOT_DISABLE_SELF`/`LAST_ADMIN` 映射成友好文案。
+7. `web/src/layouts/AdminLayout.vue`：顶栏账号改成下拉（「注销我的账号」+「退出登录」）。注销弹窗说明后果（账号停用/无法登录/历史保留）+ 输入当前密码，成功后清 session 跳登录页。
+8. `web/src/config/menu.ts`：`MenuItem` 加 `roles?`，`menuForRole` 按角色过滤（registrar 隐藏「员工账号」）。
+
+测试：`tests/test_staff_admin.py` 11 项真库——①全生命周期（建 teacher 账号→登录→停用→登录 401「账号已停用」→旧 token 调业务接口 401→重建同号 200 revived→登录新角色/姓名）②active 同号 409 ③复活保留历史（换绑新档案，旧课次 teacher_id 引用不变）④不能停用自己 ⑤停用另一个 admin 后停用最后一个 admin 403 LAST_ADMIN ⑥唯一 admin 改 role 403 ⑦registrar/teacher 调 /staff 全 403 ⑧跨租户 404 ⑨老师自助注销（错密码 401→正确 204→登录 401→token 失效）⑩唯一 admin 注销自己 403 ⑪注销后复活流程走通。
+
+**验证**：零迁移（alembic head 仍 `0015`）；全量真库 `364 passed / 6 failed`（353 → 364，净 +11；6 个失败均为既存 Windows 事件循环 flaky——test_conflict×4 / test_ledger×1 / test_me_notifications×1，隔离跑即过，CI Linux 不受影响）；`ruff check`/`format --check` 全过；web `vue-tsc --noEmit && vite build` 过。
+
+**必须跟着改的地方**
+
+1. **同手机号多机构登录仍 401**：`login_staff` 消歧机制（一号多机构选机构）是二期，本步没碰（红线）。已知限制照旧：同一手机号在多个机构有账号时登录报 `AUTH_FAILED`。
+2. **PATCH 不能改 phone**：phone 是 `(tenant_id, phone)` 唯一键的一半，改号会撞复活语义。要改号得另起「改手机号」流程（验旧号 + 查新号冲突），二期。
+3. **平台管理员（platform_admin）**：不在 `/staff` 管辖（无 tenant 上下文，跨租户 404/403），也不能自助注销（403 `OUT_OF_SCOPE`）。平台侧若要「管理平台管理员」另起接口，别塞进本组。
+4. **家长/wechat 侧注销未做**（红线）：`DELETE /me/account` 只服务员工，家长注销不在本步范围。
+
+**给发令部的指令**
+
+- 清单 US-301「员工账号管理」已落地：管理员创建/停用/启用/重置密码 + 员工自助注销 + 同手机号复号复活，全链路可跑。
+- 前端 `meta.roles: ['admin']` 保证 teacher/registrar 直输 `/staff` 路由被拦到 403；后端 `/staff` 收口 admin、`/me/account` 任意员工本人。
+- 遗留待决策：① 同手机号多机构登录消歧（二期）；② 改手机号流程（二期）；③ 平台管理员管理接口（平台侧）。
 
 ### [7.1] 2026-11-02 · 机构自助注册开通（阶段 7 开工）· commit `fa330ea`（后端+前端）
 
@@ -947,6 +982,23 @@ POST /me/subscribe-auths
 
 `POST /platform/register`（无认证，公开）：请求 `{org_name, admin_name, admin_phone, admin_password}`（约束同 `TenantCreateRequest`），复用 `provision_tenant` 走试用版 + 14 天；响应 `201 {tenant_id, name, admin_phone, plan_id, trial_end_date}`，**不返回 token**（注册完走正常登录）。同名机构 409 `TENANT_NAME_EXISTS`。
 
+### 2.9 新增：员工账号管理（US-301，零新表零加列）
+
+05 原文没有「员工账号管理」接口定义，本步新增四个（收口 admin，自助注销任意员工本人）：
+
+```
+POST   /staff          { name, phone, role, password, teacher_id? }      → 201 新建 / 200 复活(revived=true)
+GET    /staff?page=&page_size=                                          → { items, total }
+PATCH  /staff/{id}     { status?, name?, role?, teacher_id?, password? } → 200
+DELETE /me/account     { password }                                     → 204
+```
+
+- **复号复活**：同 `(tenant_id, phone)` 已有 `inactive` 账号 → 复活该行（覆盖 name/password_hash/role/teacher_id 置回 active），`revived=true`；已有 `active` → 409 `PHONE_IN_USE`。
+- **防呆**：停用自己 403 `CANNOT_DISABLE_SELF`；停用/降级最后一个 active admin 403 `LAST_ADMIN`（**先判 LAST_ADMIN 再判 SELF**——唯一 admin 停用自己归 LAST_ADMIN，非唯一 admin 停用自己才归 SELF）；跨租户 404 `STAFF_NOT_FOUND`（RLS 兜底）。
+- **角色约束**：`teacher` 必须带 `teacher_id`（本租户存在，否则 404 `TEACHER_NOT_FOUND`）；`registrar`/`admin` 必须为空（422）。
+- **停用即生效**：不发明「踢下线」，`resolve_principal` 的 `status != active` 校验让旧 token 下次请求 401（有测试证明）。
+- **PATCH 不改 phone**（唯一键的一部分，改号会撞复活语义，本步不做）。
+
 ### 2.7 尚未实现（后置，不是遗漏）
 
 | 项 | 出处 | 归属 |
@@ -1026,3 +1078,4 @@ POST /me/subscribe-auths
 | 6.3 | `6ff890a` | 服务号 + 短信通道（降级链 + 日预算，零新表）：`channels` 数组改为「有序降级链、第一个成功即停」；`ChannelSkipped` 异常表达「本级永久跳过继续下一级」；新增 `wechat_mp`（未关注/未配置/超时 → 跳过，临时 → 重试）+ `sms`（无手机号/未配置/超预算 → 跳过）；迁移 `0014` 给 `org_config` 加 `sms_daily_budget`（默认 50），发送前 COUNT 当日成功条数达预算即跳过；`GET /admin/sms-usage` 查当日用量。测试 10 项真库 + 2 项老语义改写 |
 | 6.4 | `ded83ac` | 定时任务 + 漏发补偿（阶段 6 收官，零新表）：自写 asyncio 调度器接管 6.1 worker（互斥）；上课提醒（提前 1 天/1 小时）+ 余额预警（≤5 课时）两条事件、按家长拆分 enqueue、夜间静默 22:00–08:00；wechat_subscribe 改 `ChannelSkipped` 纳入完整降级链（订阅→服务号→短信→站内信）；迁移 `0015` 给 `org_config` 加 `lesson_reminder_hours`/`balance_alert_threshold` + `sms_daily_budget` 默认 50→200；`GET /admin/notifications/stats` + `POST /admin/notifications/{id}/retry`；`scripts/simulate_notifications.py` 1000 条验收（950 成功/50 漏发→retry 全救回）。测试 +18 项 |
 | 7.1 | `fa330ea` | 机构自助注册开通（阶段 7 开工，**零新表零加列零迁移**）：`provision_tenant` 参数化（`trial` + `subscription_days`，默认行为不变）+ `_ensure_trial_plan`（试用版，限额同基础版）；公开 `POST /platform/register`（无认证，响应无 token）；`_ensure_default_plan` 由「第一个 plan」改为 `WHERE name='基础版'`（修手动开通拿错套餐）；web `/register` 页（五字段校验）+ 登录页注册入口/成功提示；手动开通接口回归不变。测试 +6 项 |
+| US-301 | （本步，待提交） | 员工账号管理（一期 P0 补齐，**零新表零加列零迁移**）：`POST/GET/PATCH /staff` + `DELETE /me/account` 四个接口；复号复活（同 `(tenant_id, phone)` 停用账号覆盖字段置回 active）；防呆（停用自己 `CANNOT_DISABLE_SELF` / 最后一个 admin `LAST_ADMIN`，先判 LAST_ADMIN 再判 SELF）；停用即生效（复用 `resolve_principal` 校验，旧 token 下次 401）；web 员工账号页（角色单选/随机密码/老师档案下拉+新建档案/停用二次确认/重置密码）+ 顶栏注销入口；`login_staff`/`staff_candidates`/`auth_staff_candidates` 一行没动。测试 +11 项 |
