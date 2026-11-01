@@ -14,7 +14,7 @@
 
 ## §0 交接区（最新在最上面）
 
-### [7.2] 2026-11-02 · 计费降级（到期只读闸门 + 续费 + 到期提醒横幅）· commit 见 git log
+### [7.2] 2026-11-02 · 计费降级（到期只读闸门 + 续费 + 到期提醒横幅）· commit `025a0be`（+ 测试时区修复 `2602cd2`）· CI `41345804967` 四 job 全绿
 
 **我改了什么**
 
@@ -37,7 +37,9 @@
 
 **0.5 Playwright 补账（040 欠账已还）**：`scripts/smoke_playwright.py`（新）驱动本机 Edge，起本地 PG + uvicorn 真后端 + vite dev，**10 条断言全过、0 条控制台报错**——admin 新建员工→列表新行；停用二次确认→状态变「停用」；teacher 直输 `/staff`→403；teacher 注销→跳登录且再登录 401「账号已停用」；改库 `end_date`=昨天→红横幅→保存写操作 402 文案→改回未来→横幅消失→保存成功。
 
-**验证**：零迁移（alembic head 仍 `0015`）；全量真库 `374 passed / 6 failed`（364 → 374，净 +10；6 个失败均为**既存** Windows 事件循环 flaky——test_conflict×4 / test_ledger×1 / test_me_notifications×1，隔离跑即过，CI Linux 不受影响）；`ruff check` 全过；web `vue-tsc --noEmit` 过。
+**验证**：零迁移（alembic head 仍 `0015`）；全量真库 `364 → 374 passed`（净 +10 = test_subscription.py 10 项；本地 Windows 仍 6 个**既存**事件循环 flaky——test_conflict×4 / test_ledger×1 / test_me_notifications×1，隔离跑即过）；`APP_ENV=test`（同 CI 口径）本地 `380 passed` 全过，CI Linux 四 job 全绿；`ruff check`/`format --check` 全过；web `vue-tsc --noEmit && vite build` 过。
+
+> 补丁 `2602cd2`：test_subscription 的到期判定从 `date.today()` 改为 `business_today()`（UTC+8）。CI 跑在 Linux UTC，与后端 UTC+8 差一天，`date.today()` 会让到期边界/续费天数断言在 UTC 时区错位；本地 Windows 是 UTC+8 所以没暴露。
 
 **必须跟着改的地方**
 
