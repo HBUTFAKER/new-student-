@@ -508,10 +508,18 @@ async def test_mixed_business_flow_balances_to_zero_drift(
     await consume(seed, lesson_id=seed.lesson_target, count=1)
     await assert_balanced(client, seed, 57, min_entries=20)
 
-    # Reconciliation across every tenant: zero drift, warnings allowed.
+    # Reconciliation for this test's tenant: zero drift, warnings allowed.
+    # （收窄到本租户：共享库中其他测试的合成数据不参与全局对账）
     completed = await asyncio.to_thread(
         subprocess.run,
-        [sys.executable, "-m", "scripts.reconcile_ledger", "--json"],
+        [
+            sys.executable,
+            "-m",
+            "scripts.reconcile_ledger",
+            "--json",
+            "--tenant",
+            str(seed.tenant_id),
+        ],
         cwd=ROOT,
         capture_output=True,
         text=True,

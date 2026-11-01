@@ -695,7 +695,14 @@ async def test_reconcile_script_reports_zero_drift(
 
     completed = await asyncio.to_thread(
         subprocess.run,
-        [sys.executable, "-m", "scripts.reconcile_ledger", "--json"],
+        [
+            sys.executable,
+            "-m",
+            "scripts.reconcile_ledger",
+            "--json",
+            "--tenant",
+            str(ledger_seed.tenant_id),
+        ],
         cwd=ROOT,
         capture_output=True,
         text=True,

@@ -207,7 +207,7 @@ async def _check_tenant(db: AsyncSession) -> dict:
     return report
 
 
-async def reconcile() -> dict:
+async def reconcile(tenant_filter: list[str] | None = None) -> dict:
     engine = create_async_engine(get_settings().database_url)
     factory = async_sessionmaker(bind=engine, expire_on_commit=False)
     summary = {
@@ -222,7 +222,19 @@ async def reconcile() -> dict:
     }
     try:
         async with factory() as session:
-            tenant_ids = (await session.scalars(text("SELECT id FROM tenant ORDER BY id"))).all()
+            if tenant_filter:
+                tenant_ids = (
+                    await session.scalars(
+                        text(
+                            "SELECT id FROM tenant WHERE id = ANY(CAST(:ids AS uuid[])) ORDER BY id"
+                        ),
+                        {"ids": tenant_filter},
+                    )
+                ).all()
+            else:
+                tenant_ids = (
+                    await session.scalars(text("SELECT id FROM tenant ORDER BY id"))
+                ).all()
         for tenant_id in tenant_ids:
             async with factory() as session, tenant_context(session, tenant_id):
                 report = await _check_tenant(session)
@@ -244,9 +256,15 @@ async def reconcile() -> dict:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="课时账本全租户对账")
     parser.add_argument("--json", action="store_true", help="输出 JSON")
+    parser.add_argument(
+        "--tenant",
+        action="append",
+        default=None,
+        help="只对账指定租户（可多次传入）；缺省对账全部租户",
+    )
     args = parser.parse_args(argv)
 
-    summary = asyncio.run(reconcile())
+    summary = asyncio.run(reconcile(tenant_filter=args.tenant))
     if args.json:
         print(json.dumps(summary, ensure_ascii=False, default=str, indent=2))
     else:
