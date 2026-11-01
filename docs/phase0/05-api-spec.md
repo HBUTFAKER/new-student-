@@ -64,17 +64,27 @@
 |------|------|
 | `GET /me/subscription` | ✅任意登录角色（机构内 staff 横幅数据源；家长亦可调，无限制） |
 | `POST /platform/tenants/{tenant_id}/renew` | ✅仅 platform_admin |
+| `GET /platform/tenants/{tenant_id}/usage` | ✅仅 platform_admin（7.3 落地） |
 
-- **`GET /me/subscription` 响应 200**：`{ "plan_name": "基础版", "end_date": "2026-12-31", "days_left": 45, "expired": false }`
+- **`GET /me/subscription` 响应 200**：`{ "plan_name": "基础版", "end_date": "2026-12-31", "days_left": 45, "expired": false, "students_used": 3, "students_max": 100, "messages_used": 42, "messages_max": 1000 }`
   - `days_left = (end_date - today).days`；`expired = today > end_date`（**end_date 当天仍可用**）
   - `tenant_id=None`（未选租户的家长）→ 403 `OUT_OF_SCOPE`「仅机构账号可访问」
   - 查不到订阅行 → 500 `SUBSCRIPTION_MISSING`（provision_tenant 保证一定有，暴露问题、不静默放行）
+  - 7.3 起补四个用量字段：`students_used`（在档学生数）/`students_max`（plan 上限）/`messages_used`（当月消息已用量）/`messages_max`（plan 月上限）——横幅与未来设置页一次拿全
 - **`POST /platform/tenants/{tenant_id}/renew` 请求**：`{ "days": 30, "plan_id"?: "uuid" }`
   - `days ≥ 1`；从 `max(today, end_date)` 起顺延 `days` 天（**已过期机构从今天起算，不白送过期天数**）
   - 带 `plan_id` 则同时换套餐；plan 不存在 → 404 `PLAN_NOT_FOUND`；订阅行不存在 → 404 `SUBSCRIPTION_NOT_FOUND`
   - 响应 200：`{ "end_date", "plan_id", "plan_name" }`；续费即时生效（无缓存）
   - 本步只做接口不做 UI（平台后台归 7.4）
+- **`GET /platform/tenants/{tenant_id}/usage`（7.3 落地）响应 200**：`{ "plan_name", "max_students", "students_used", "max_messages", "messages_used", "period": "2026-11", "subscription_end_date" }`——7.4 平台后台租户详情页数据源，本步只做接口不做 UI
 - **到期只读降级（写闸门，7.2 核心口径）**：到期租户内所有角色（admin/registrar/teacher/parent）的 `POST/PATCH/PUT/DELETE` 写请求统一 402 `SUBSCRIPTION_EXPIRED`，detail「机构服务已到期，请联系管理员续费（数据已完整保留）」；放行白名单 `/auth/*` + `platform_admin` + 无租户身份；读接口（GET/HEAD/OPTIONS）天然放行。判定口径 `today > end_date`（业务日期 UTC+8，非服务器本地时区）。
+
+### 1.6 套餐限额（7.3 落地，零新表零加列）
+
+- **学生数限额（只拦新增，不拦编辑/转班/续费）**：在档（`status='active'`）学生数 ≥ `plan.max_students` → 402 `PLAN_LIMIT_EXCEEDED`，detail「学生数已达套餐上限 {max} 人，归档不活跃学生可腾出名额」；归档/停用不占额、归档腾名额。
+- **`POST /students/bulk`（批量导入，7.3 落地）**：请求 `{ "items": [StudentCreate, ...] }`（1–200 人）；**整批拒绝语义**——剩余名额 M < 本批 N → 整批不入库、402 `PLAN_LIMIT_EXCEEDED`，detail「剩余名额 M 个，本批 N 人，请归档学生或联系平台扩容」；不截断半批入库。
+- **消息量限额（自然月）**：`usage_meter`（metric=`messages`、period=`YYYY-MM`，复用 0.3 既有表）当月已用量 ≥ `plan.max_messages` → 通知外发通道（wechat_subscribe/wechat_mp/sms）全部 `ChannelSkipped(reason=PLAN_MESSAGE_LIMIT)`，降级链直达 `in_app` 站内信兜底、无 exhausted（skip 不是失败）；站内信不占额、失败不计；计数「外发通道成功一条 = 1」（多家长按实发条数，单条原子 upsert `value=value+n`）。
+
 
 ## 2. 档案模块
 

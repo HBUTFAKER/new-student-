@@ -25,6 +25,11 @@ export function createStudent(payload: StudentPayload): Promise<Student> {
   return http.post<Student>('/students', payload).then((r) => r.data)
 }
 
+/** 批量导入学生（7.3）：整批提交，剩余名额不足时后端整批 402 拒绝 */
+export function bulkCreateStudents(payload: StudentPayload[]): Promise<Paged<Student>> {
+  return http.post<Paged<Student>>('/students/bulk', { items: payload }).then((r) => r.data)
+}
+
 export function updateStudent(id: string, payload: Partial<StudentPayload>): Promise<Student> {
   return http.patch<Student>(`/students/${id}`, payload).then((r) => r.data)
 }

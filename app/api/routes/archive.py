@@ -38,6 +38,7 @@ from app.schemas.archive import (
     ParentList,
     ParentOut,
     ParentUpdate,
+    StudentBulkCreate,
     StudentCreate,
     StudentList,
     StudentOut,
@@ -47,6 +48,7 @@ from app.schemas.archive import (
     TeacherOut,
     TeacherUpdate,
 )
+from app.services.subscription import check_student_bulk_limit, check_student_limit, owner_session
 
 router = APIRouter(tags=["archive"])
 
@@ -90,10 +92,39 @@ def _invite_status(invite: InviteCode, now: datetime) -> str:
 async def create_student(
     payload: StudentCreate, db: TenantDbSession, principal: OfficeUser
 ) -> StudentOut:
+    async with owner_session() as owner_db:
+        await check_student_limit(owner_db, principal.tenant_id)
     student = Student(tenant_id=principal.tenant_id, **payload.model_dump())
     db.add(student)
     await db.flush()
     return StudentOut.model_validate(student)
+
+
+@router.post(
+    "/students/bulk",
+    response_model=StudentList,
+    status_code=201,
+    summary="批量导入学生（整批拒绝，剩余名额不足不入库）",
+)
+async def bulk_create_students(
+    payload: StudentBulkCreate, db: TenantDbSession, principal: OfficeUser
+) -> StudentList:
+    """7.3 学生限额的整批语义：剩余名额 < 本批人数时整批 402，不截断半批入库。
+
+    与单条 ``POST /students`` 共用一个限额口径（在档学生数）。编辑/转班不经过这里。
+    """
+
+    tenant_id = principal.tenant_id
+    async with owner_session() as owner_db:
+        await check_student_bulk_limit(owner_db, tenant_id, len(payload.items))
+
+    students = [Student(tenant_id=tenant_id, **item.model_dump()) for item in payload.items]
+    db.add_all(students)
+    await db.flush()
+    return StudentList(
+        items=[StudentOut.model_validate(student) for student in students],
+        total=len(students),
+    )
 
 
 @router.get("/students", response_model=StudentList, summary="学生列表")

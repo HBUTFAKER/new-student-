@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 
-import { createStudent, listStudents, updateStudent } from '@/api/archive'
+import { bulkCreateStudents, createStudent, listStudents, updateStudent } from '@/api/archive'
 import { ApiError } from '@/api/http'
+import { getMySubscription } from '@/api/subscription'
 import ImportDialog from '@/components/ImportDialog.vue'
 import InviteCodeDialog from '@/components/InviteCodeDialog.vue'
 import { usePagedList } from '@/composables/usePagedList'
@@ -217,6 +218,24 @@ async function handleExport(): Promise<void> {
 
 const importVisible = ref(false)
 
+// ---------------------------------------------------------------- 学生限额提示（7.3）
+
+const studentLimit = ref<{ used: number; max: number } | null>(null)
+
+const nearingStudentLimit = computed(() => {
+  if (!studentLimit.value || studentLimit.value.max <= 0) return false
+  return studentLimit.value.used / studentLimit.value.max >= 0.9
+})
+
+async function loadStudentLimit(): Promise<void> {
+  try {
+    const sub = await getMySubscription()
+    studentLimit.value = { used: sub.students_used, max: sub.students_max }
+  } catch {
+    // 静默：限额提示是锦上添花，拉不到不影响列表主流程
+  }
+}
+
 // ---------------------------------------------------------------- 邀请码
 
 const inviteVisible = ref(false)
@@ -227,15 +246,29 @@ function openInvite(row: Student): void {
   inviteVisible.value = true
 }
 
-async function submitImportRow(row: Record<string, string>): Promise<void> {
+function parseImportRow(row: Record<string, string>): StudentPayload | null {
   const name = (row['姓名'] ?? '').trim()
-  if (!name) throw new ApiError('姓名为空', 'ROW_INVALID', 422)
-  await createStudent({
+  if (!name) return null
+  return {
     name,
     grade: row['年级']?.trim() || null,
     school: row['学校']?.trim() || null,
     contact: row['联系方式']?.trim() || null,
-  })
+  }
+}
+
+async function submitImportBatch(rows: Record<string, string>[]): Promise<void> {
+  const items: StudentPayload[] = []
+  for (const row of rows) {
+    const item = parseImportRow(row)
+    if (!item) {
+      ElMessage.error('存在姓名为空的行，请检查 CSV 后重试')
+      throw new ApiError('姓名为空', 'ROW_INVALID', 422)
+    }
+    items.push(item)
+  }
+  // 整批提交：剩余名额不足时后端整批 402（PLAN_LIMIT_EXCEEDED），不截断半批入库
+  await bulkCreateStudents(items)
 }
 
 function handleImported(): void {
@@ -244,6 +277,7 @@ function handleImported(): void {
 
 onMounted(() => {
   void load(query())
+  void loadStudentLimit()
 })
 </script>
 
@@ -290,6 +324,15 @@ onMounted(() => {
         show-icon
         :closable="false"
         class="page__error"
+      />
+
+      <el-alert
+        v-if="nearingStudentLimit && studentLimit"
+        :title="`在档学生 ${studentLimit.used}/${studentLimit.max}，已接近套餐上限，超额将无法新建`"
+        type="warning"
+        show-icon
+        :closable="false"
+        class="page__limit-tip"
       />
 
       <el-table v-loading="loading" :data="items" border stripe empty-text="暂无学生">
@@ -388,7 +431,7 @@ onMounted(() => {
       template-file-name="学生导入模板.csv"
       :template-headers="['姓名', '年级', '学校', '联系方式']"
       :template-sample="['王小明', '八年级', '三中', '13800000000']"
-      :submit-row="submitImportRow"
+      :submit-batch="submitImportBatch"
       @finished="handleImported"
     />
 
@@ -424,6 +467,10 @@ onMounted(() => {
 }
 
 .page__error {
+  margin-bottom: 12px;
+}
+
+.page__limit-tip {
   margin-bottom: 12px;
 }
 

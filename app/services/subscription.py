@@ -12,15 +12,17 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import date, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
 from app.core.errors import AppError
-from app.models.platform import Plan, TenantSubscription
+from app.models.archive import Student
+from app.models.platform import Plan, TenantSubscription, UsageMeter
 from app.services.ledger import business_today
 
 
@@ -135,3 +137,144 @@ async def renew_subscription(
         plan_id=next_plan_id,
         plan_name=plan_name or "",
     )
+
+
+# ---------------------------------------------------------------- 7.3 套餐限额
+
+
+#: usage_meter 里消息量的 metric 名（对齐 US-402 设计：metric=messages、period=YYYY-MM）。
+MESSAGE_METRIC = "messages"
+
+
+@dataclass(frozen=True, slots=True)
+class PlanLimits:
+    max_students: int
+    max_messages: int
+
+
+def current_period() -> str:
+    """自然月 period 字符串（``YYYY-MM``），统一按业务时区（UTC+8）算。"""
+
+    today = business_today()
+    return f"{today.year:04d}-{today.month:02d}"
+
+
+async def get_plan_limits(db: AsyncSession, tenant_id: UUID) -> PlanLimits | None:
+    """当前生效 plan 的学生/消息限额。查不到订阅/plan → None（调用方决定放行还是报错）。
+
+    plan/tenant_subscription 是平台层表，``db`` 必须是 owner 连接（绕过 RLS）。
+    """
+
+    row = (
+        await db.execute(
+            select(Plan.max_students, Plan.max_messages)
+            .join(TenantSubscription, TenantSubscription.plan_id == Plan.id)
+            .where(TenantSubscription.tenant_id == tenant_id)
+        )
+    ).first()
+    if row is None:
+        return None
+    return PlanLimits(max_students=int(row[0]), max_messages=int(row[1]))
+
+
+async def count_active_students(db: AsyncSession, tenant_id: UUID) -> int:
+    """在档（status='active'）学生数。归档/停用不占名额（7.3 口径）。
+
+    ``db`` 必须是 owner 连接（显式 ``tenant_id`` 过滤，绕 RLS）；租户层连接在 RLS 下
+    已限到当前租户，也能得出同值，但这里统一走 owner 口径和 ``check_student_limit`` 一致。
+    """
+
+    return int(
+        await db.scalar(
+            select(func.count())
+            .select_from(Student)
+            .where(Student.tenant_id == tenant_id, Student.status == "active")
+        )
+        or 0
+    )
+
+
+async def check_student_limit(db: AsyncSession, tenant_id: UUID) -> None:
+    """单条新增学生的限额校验：在档数 >= 上限 → 402 ``PLAN_LIMIT_EXCEEDED``。
+
+    只拦「新增」，编辑/转班/续费等既有操作不拦（调用方别往这里塞）。查不到订阅行按
+    500 暴露（provision_tenant 保证一定有，不静默放行）。
+    """
+
+    limits = await get_plan_limits(db, tenant_id)
+    if limits is None:
+        raise AppError(500, "SUBSCRIPTION_MISSING", "机构订阅记录缺失，请联系平台处理")
+    active = await count_active_students(db, tenant_id)
+    if active >= limits.max_students:
+        raise AppError(
+            402,
+            "PLAN_LIMIT_EXCEEDED",
+            f"学生数已达套餐上限 {limits.max_students} 人，归档不活跃学生可腾出名额",
+        )
+
+
+async def check_student_bulk_limit(db: AsyncSession, tenant_id: UUID, n: int) -> None:
+    """批量导入学生的整批拒绝校验：剩余名额 < 本批人数 → 整批 402（不截断半批入库）。"""
+
+    limits = await get_plan_limits(db, tenant_id)
+    if limits is None:
+        raise AppError(500, "SUBSCRIPTION_MISSING", "机构订阅记录缺失，请联系平台处理")
+    active = await count_active_students(db, tenant_id)
+    remaining = limits.max_students - active
+    if n > remaining:
+        raise AppError(
+            402,
+            "PLAN_LIMIT_EXCEEDED",
+            f"剩余名额 {remaining} 个，本批 {n} 人，请归档学生或联系平台扩容",
+        )
+
+
+async def record_message_sent(db: AsyncSession, tenant_id: UUID, n: int = 1) -> None:
+    """当月外发消息成功计数 +n（自然月 period，``metric=messages``）。
+
+    幂等 upsert：``INSERT ... ON CONFLICT (tenant_id, metric, period) DO UPDATE
+    value = value + n``。站内信（in_app）不占额，调用方只在「外发通道真正送达」时累加。
+    ``db`` 必须是 owner 连接（usage_meter 是平台层表、app_user 无权限）。
+    """
+
+    if n <= 0:
+        return
+    period = current_period()
+    await db.execute(
+        pg_insert(UsageMeter)
+        .values(
+            id=uuid4(),
+            tenant_id=tenant_id,
+            metric=MESSAGE_METRIC,
+            value=n,
+            period=period,
+        )
+        .on_conflict_do_update(
+            index_elements=["tenant_id", "metric", "period"],
+            set_={"value": UsageMeter.value + n},
+        )
+    )
+
+
+async def get_month_message_usage(db: AsyncSession, tenant_id: UUID) -> int:
+    """当月（自然月）已用消息条数；无记录返回 0。``db`` 必须是 owner 连接。"""
+
+    return int(
+        await db.scalar(
+            select(UsageMeter.value).where(
+                UsageMeter.tenant_id == tenant_id,
+                UsageMeter.metric == MESSAGE_METRIC,
+                UsageMeter.period == current_period(),
+            )
+        )
+        or 0
+    )
+
+
+async def message_limit_reached(db: AsyncSession, tenant_id: UUID) -> bool:
+    """当月消息量是否已达套餐上限。查不到订阅/plan 时返回 False（不限流，别卡死通知）。"""
+
+    limits = await get_plan_limits(db, tenant_id)
+    if limits is None:
+        return False
+    return await get_month_message_usage(db, tenant_id) >= limits.max_messages

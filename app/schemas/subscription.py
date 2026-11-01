@@ -11,6 +11,10 @@ class SubscriptionStatusResponse(BaseModel):
     end_date: date
     days_left: int
     expired: bool
+    students_used: int
+    students_max: int
+    messages_used: int
+    messages_max: int
 
 
 class RenewRequest(BaseModel):

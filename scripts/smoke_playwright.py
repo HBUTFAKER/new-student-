@@ -166,6 +166,21 @@ async def set_end_date(tenant_id: str, end: date) -> None:
         await conn.close()
 
 
+async def set_plan_max_students(tenant_id: str, max_students: int) -> None:
+    """7.3：改库套餐学生上限（改大/改小），验证限额即时生效、无缓存。"""
+
+    conn = await asyncpg.connect(OWNER_DSN)
+    try:
+        await conn.execute(
+            "UPDATE plan SET max_students = $1 WHERE id = "
+            "(SELECT plan_id FROM tenant_subscription WHERE tenant_id = $2)",
+            max_students,
+            tenant_id,
+        )
+    finally:
+        await conn.close()
+
+
 # ---------------------------------------------------------------- 浏览器交互
 
 
@@ -261,6 +276,48 @@ def run(creds: dict) -> None:
             admin.get_by_text("账号已创建").wait_for(state="visible", timeout=8000)
             expect(admin.get_by_role("cell", name=recover_name)).to_have_count(1)
             check("场景5: 恢复后写操作成功", True)
+
+            # ---------------------------------------------------------------- 场景 6：7.3 学生限额
+            _run_async(set_plan_max_students(creds["tenant_id"], 1))
+            admin.goto(f"{FRONTEND}/archive/students")
+            admin.get_by_role("button", name="新建学生").click()
+            sdlg = admin.locator(".el-dialog:visible", has_text="新建学生")
+            sdlg.wait_for(state="visible")
+            sdlg.get_by_placeholder("必填", exact=True).fill("限额学生一")
+            sdlg.get_by_role("button", name="保存").click()
+            admin.get_by_text("已新建").wait_for(state="visible", timeout=8000)
+            check("场景6: max_students=1 建第 1 个学生成功", True)
+
+            # 重载触发 onMounted 拉 /me/subscription → 1/1 已达 100% → 黄色接近上限提示
+            admin.goto(f"{FRONTEND}/archive/students")
+            admin.get_by_text("已接近套餐上限").wait_for(state="visible", timeout=8000)
+            check("场景6: 接近上限出现黄色提示条", True)
+
+            # 第 2 个学生撞 402，文案正确
+            admin.get_by_role("button", name="新建学生").click()
+            sdlg2 = admin.locator(".el-dialog:visible", has_text="新建学生")
+            sdlg2.wait_for(state="visible")
+            sdlg2.get_by_placeholder("必填", exact=True).fill("限额学生二")
+            sdlg2.get_by_role("button", name="保存").click()
+            admin.get_by_text("学生数已达套餐上限 1 人").first.wait_for(
+                state="visible", timeout=8000
+            )
+            check("场景6: 第 2 个学生撞 402 并提示限额文案", True)
+            expect(admin.get_by_role("cell", name="限额学生二")).to_have_count(0)
+            check("场景6: 402 后学生未超建（列表仍只有 1 人）", True)
+
+            # 改大 → 立即恢复（无缓存）
+            _run_async(set_plan_max_students(creds["tenant_id"], 100))
+            sdlg2.get_by_role("button", name="保存").click()
+            admin.get_by_text("已新建").wait_for(state="visible", timeout=8000)
+            expect(admin.get_by_role("cell", name="限额学生二")).to_have_count(1)
+            check("场景6: 改大后第 2 个学生创建成功", True)
+
+            # 改大后重载：2/100 未达 90% 阈值 → 黄色提示条消失
+            admin.goto(f"{FRONTEND}/archive/students")
+            admin.get_by_role("cell", name="限额学生一").wait_for(state="visible", timeout=8000)
+            expect(admin.get_by_text("已接近套餐上限")).to_have_count(0)
+            check("场景6: 改大后黄色提示条消失", True)
 
             admin_ctx.close()
 

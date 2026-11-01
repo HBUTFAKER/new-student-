@@ -32,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.notification import InAppMessage
 from app.models.notification_center import Notification
 from app.services.ledger import BUSINESS_TZ
+from app.services.subscription import message_limit_reached, record_message_sent
 
 logger = logging.getLogger(__name__)
 
@@ -218,8 +219,26 @@ async def _dispatch(db: AsyncSession, notification: Notification) -> None:
     remaining = [channel for channel in notification.channels if channel not in succeeded]
     last_error: str | None = None
     delivered = False
+    delivered_channel: str | None = None
+
+    # 7.3 消息限额：进通道循环前判一次当月用量。超限 → 外发通道（subscribe/mp/sms）
+    # 全部跳过，降级链直达 in_app 兜底；站内信不占额。到期只读租户 scheduler 已不产生
+    # 新事件，这里无需重复处理。
+    over_message_limit = await message_limit_reached(db, notification.tenant_id)
 
     for channel in remaining:
+        if over_message_limit and channel != CHANNEL_IN_APP:
+            logger.info(
+                "channel_skipped",
+                extra={
+                    "extra_fields": {
+                        "dedupe_key": notification.dedupe_key,
+                        "channel": channel,
+                        "reason": "PLAN_MESSAGE_LIMIT",
+                    }
+                },
+            )
+            continue  # 月消息配额已用完，外发通道整级跳过，试下一个（最终到 in_app）
         adapter = get_channel(channel)
         try:
             if adapter is None:
@@ -235,6 +254,7 @@ async def _dispatch(db: AsyncSession, notification: Notification) -> None:
             )
             succeeded.append(channel)
             delivered = True
+            delivered_channel = channel
             break  # 第一个成功即停，后续通道不再执行
         except ChannelSkipped as skip:
             logger.info(
@@ -257,6 +277,17 @@ async def _dispatch(db: AsyncSession, notification: Notification) -> None:
     notification.updated_at = now
     if delivered:
         notification.status = STATUS_SUCCEEDED
+        # 7.3 计数：外发通道真正送达才算消息条数（站内信不占额）。按家长拆分后一条
+        # 通知 = 一个家长 = 1 条；多家长 payload 按 parent_ids 数累加（容忍 ±1）。
+        if delivered_channel != CHANNEL_IN_APP:
+            await record_message_sent(
+                db,
+                notification.tenant_id,
+                n=len((notification.payload or {}).get("parent_ids", [])) or 1,
+            )
+        elif over_message_limit:
+            # 外发全被月配额跳过、最终走站内信：留痕 reason 供后续管理端详情页映射中文。
+            notification.last_error = "PLAN_MESSAGE_LIMIT"
         return
 
     if last_error is None:

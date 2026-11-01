@@ -55,7 +55,13 @@ from app.services.portal import (
     resolve_schedule_window,
 )
 from app.services.subscribe import record_subscribe_auths
-from app.services.subscription import get_subscription_status, owner_session
+from app.services.subscription import (
+    count_active_students,
+    get_month_message_usage,
+    get_plan_limits,
+    get_subscription_status,
+    owner_session,
+)
 
 router = APIRouter(prefix="/me", tags=["me"])
 
@@ -432,16 +438,27 @@ async def mark_notifications_read(
     summary="订阅状态（前端横幅数据源）",
 )
 async def my_subscription(principal: CurrentPrincipal) -> SubscriptionStatusResponse:
-    """7.2：任意机构内角色可调；家长端不做横幅但本接口不限制。读的是平台层订阅行。"""
+    """7.2/7.3：任意机构内角色可调；家长端不做横幅但本接口不限制。读的是平台层订阅行。
+
+    7.3 起补四个用量字段（students_used/max、messages_used/max），管理端横幅与未来设置页
+    一次性拿全，别让前端再拼几个接口。
+    """
 
     tenant_id = principal.tenant_id
     if tenant_id is None:
         raise AppError(403, "OUT_OF_SCOPE", "仅机构账号可访问")
     async with owner_session() as db:
         status = await get_subscription_status(db, tenant_id)
+        limits = await get_plan_limits(db, tenant_id)
+        students_used = await count_active_students(db, tenant_id)
+        messages_used = await get_month_message_usage(db, tenant_id)
     return SubscriptionStatusResponse(
         plan_name=status.plan_name,
         end_date=status.end_date,
         days_left=status.days_left,
         expired=status.expired,
+        students_used=students_used,
+        students_max=limits.max_students if limits else 0,
+        messages_used=messages_used,
+        messages_max=limits.max_messages if limits else 0,
     )

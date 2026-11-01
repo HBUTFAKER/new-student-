@@ -14,8 +14,10 @@ const props = defineProps<{
   templateFileName: string
   templateHeaders: string[]
   templateSample: string[]
-  /** 逐行提交；抛 ApiError 则记为该行失败，不中断后续行 */
-  submitRow: (row: Record<string, string>) => Promise<void>
+  /** 逐行提交；抛 ApiError 则记为该行失败，不中断后续行（与 submitBatch 二选一） */
+  submitRow?: (row: Record<string, string>) => Promise<void>
+  /** 整批提交（7.3 学生导入）；提供后优先于 submitRow，一次性提交全部行 */
+  submitBatch?: (rows: Record<string, string>[]) => Promise<void>
 }>()
 
 const emit = defineEmits<{
@@ -94,20 +96,36 @@ async function startImport(): Promise<void> {
   progress.value = 0
 
   try {
-    for (let index = 0; index < rows.value.length; index += 1) {
-      const row = rows.value[index] ?? {}
-      progress.value = index + 1
+    if (props.submitBatch) {
+      // 整批提交：一次调用，成功全绿；抛 ApiError（如 402 名额不足）则整批失败、不入库。
+      // 错误文案已由 http 拦截器弹 toast，这里吞掉异常避免 unhandled rejection。
       try {
-        await props.submitRow(row)
-        results.value.push({ line: index + 2, ok: true, message: '成功' })
-      } catch (error) {
-        const message =
-          error instanceof ApiError
-            ? `${error.code} · ${error.message}`
-            : error instanceof Error
-              ? error.message
-              : '未知错误'
-        results.value.push({ line: index + 2, ok: false, message })
+        await props.submitBatch(rows.value)
+      } catch {
+        return
+      }
+      results.value = rows.value.map((_row, index) => ({
+        line: index + 2,
+        ok: true,
+        message: '成功',
+      }))
+      progress.value = rows.value.length
+    } else {
+      for (let index = 0; index < rows.value.length; index += 1) {
+        const row = rows.value[index] ?? {}
+        progress.value = index + 1
+        try {
+          await props.submitRow!(row)
+          results.value.push({ line: index + 2, ok: true, message: '成功' })
+        } catch (error) {
+          const message =
+            error instanceof ApiError
+              ? `${error.code} · ${error.message}`
+              : error instanceof Error
+                ? error.message
+                : '未知错误'
+          results.value.push({ line: index + 2, ok: false, message })
+        }
       }
     }
 

@@ -18,6 +18,12 @@ class StudentCreate(BaseModel):
     status: StudentStatus = "active"
 
 
+class StudentBulkCreate(BaseModel):
+    """批量导入学生：整批拒绝语义（剩余名额不足时整批不入库）。"""
+
+    items: list[StudentCreate] = Field(min_length=1, max_length=200)
+
+
 class StudentUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=64)
     grade: str | None = Field(default=None, max_length=16)

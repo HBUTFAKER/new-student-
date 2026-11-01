@@ -199,11 +199,16 @@ http.interceptors.response.use(
 
     const apiError = toApiError(error)
     if (status === 402 && !config?.skipErrorToast) {
-      // 到期只读：同一会话只提示一次，后续 402 静默抛错（横幅已经说明只读原因）
-      if (!subscriptionExpiredNotified) {
-        subscriptionExpiredNotified = true
-        ElMessage.error(apiError.message)
+      // 到期只读（SUBSCRIPTION_EXPIRED）：同一会话只提示一次，后续静默（横幅已说明）。
+      // 限额超额（PLAN_LIMIT_EXCEEDED）等其它 402 照常提示，别让限额报错顶着「已到期」的帽子。
+      if (apiError.code === 'SUBSCRIPTION_EXPIRED') {
+        if (!subscriptionExpiredNotified) {
+          subscriptionExpiredNotified = true
+          ElMessage.error(apiError.message)
+        }
+        throw apiError
       }
+      ElMessage.error(apiError.message)
       throw apiError
     }
     if (!config?.skipErrorToast) {

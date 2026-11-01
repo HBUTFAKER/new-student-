@@ -8,11 +8,50 @@
 > - 发令部：读 §0 最新一块 + §4 已锁定约定，再出指令。别只看 01~07 原文，那是基线，不是现状。
 > - 开发：动表结构、动既有测试、动已上线接口前，先读 §1 与 §2。
 
-当前状态：**阶段 3 收官（3.5 完成）**，Alembic head = `0011_subscribe_auth_quota`，全库 26 张表（业务层 19 张）。**阶段 4 收官**：4.1 前端骨架 + 4.2 档案与班级管理页 + 4.3 排课日历与拖拽调课 + 4.4 上（三个只读报表接口）+ 4.4 下（报表前端页）全部完成。4.4 上是阶段 4 唯一动后端的部分：零迁移、零新表。**阶段 5 进行中**：5.1 家长端小程序骨架 + 登录 + 请求封装、5.2 邀请码绑定 + 多孩子切换 + 管理端发码入口、5.3 课表/余额/扣课明细（三个 `/me` 只读接口 + 小程序三页 + 首页改工作台）、5.4 订阅授权收集（迁移 `0011` 给 `subscribe_auth` 加 `available_count` / `updated_at` + 两个 `/me` 接口 + 小程序自动授权与「通知设置」页）均已完成。5.3 是阶段 5 首次动后端（零迁移）；5.4 是阶段 5 第二个动后端的步骤（**加列不加表**，表数仍 26）。5.5 站内信 / 红点兜底是阶段 5 收官步：**加第 27 张表 `in_app_message`**（业务层 20），写入只挂签到扣课一个钩子，配三个 `/me` 读接口与小程序消息页 + 首页红点。**阶段 6 开篇（6.1 通知中心引擎）已完成**：加第 28 张表 `notification`（业务层 21），只做机制（幂等入队 + 状态机 + 重试 + worker + 通道适配器），不接具体业务事件。**6.2 微信订阅通道已完成**：`register_channel("wechat_subscribe", …)` 接到 6.1 引擎上，原子扣额度 + 降级 + 管理端测试接口，**零迁移、表数不变（28 / 业务 21）**。**6.3 服务号 + 短信通道已完成**：`channels` 数组从「全部尝试」改成「有序降级链、第一个成功即停」，新增 `wechat_mp` / `sms` 两通道 + `org_config.sms_daily_budget` 短信日预算列（迁移 `0014`，**加列不加表**）+ 管理端当日用量查询。另有 **5.4 补丁** `9a6ebd9`：修单次加课并发占位死锁（`40P01` → 409，越界改了排课写路径，可单独 revert）。**6.4 定时任务 + 漏发补偿已完成（阶段 6 收官）**：自写 asyncio 调度器（不上 APScheduler/Celery）接管 6.1 worker（互斥），驱动上课提醒（提前 1 天 + 1 小时，`org_config.lesson_reminder_hours`）与余额预警（≤5 课时，`org_config.balance_alert_threshold`，0=关）两条业务事件；wechat_subscribe 改 `ChannelSkipped` 纳入完整降级链（订阅 → 服务号 → 短信 → 站内信）；夜间静默 22:00–08:00；`sms_daily_budget` 默认 50→200；迁移 `0015`（**加列不加表**，表数仍 28 / 业务 21）；`GET /admin/notifications/stats` + `POST /admin/notifications/{id}/retry` 两个管理端接口；1000 条模拟验收通过（950 成功 / 50 漏发→retry 全救回）。**7.1 机构自助注册开通已完成（阶段 7 开工）**：公开 `POST /platform/register`（无认证，注册三件套=机构名+管理员手机号+密码）+ 试用版套餐（14 天，`_ensure_trial_plan` 插行不加表）+ web `/register` 注册页（守卫白名单），手动开通 `POST /platform/tenants` 保留不变；**零新表零加列零迁移**，表数仍 28 / 业务 21。**US-301 员工账号管理已完成（一期 P0 补齐）**：`POST/GET/PATCH /staff` + `DELETE /me/account` 四接口 + 复号复活（同 `(tenant_id, phone)` 停用账号覆盖置回 active）+ 防呆（`CANNOT_DISABLE_SELF`/`LAST_ADMIN`）+ web 员工账号页与顶栏注销入口；**零新表零加列零迁移**，表数仍 28 / 业务 21。**7.2 计费降级已完成**：到期只读闸门（写全拦 402 `SUBSCRIPTION_EXPIRED`）+ 手动续费 `POST /platform/tenants/{id}/renew` + 到期提醒横幅（≤7 天提示、≤3 天红、到期红只读）；**零新表零加列零迁移**，表数仍 28 / 业务 21。
+当前状态：**阶段 3 收官（3.5 完成）**，Alembic head = `0011_subscribe_auth_quota`，全库 26 张表（业务层 19 张）。**阶段 4 收官**：4.1 前端骨架 + 4.2 档案与班级管理页 + 4.3 排课日历与拖拽调课 + 4.4 上（三个只读报表接口）+ 4.4 下（报表前端页）全部完成。4.4 上是阶段 4 唯一动后端的部分：零迁移、零新表。**阶段 5 进行中**：5.1 家长端小程序骨架 + 登录 + 请求封装、5.2 邀请码绑定 + 多孩子切换 + 管理端发码入口、5.3 课表/余额/扣课明细（三个 `/me` 只读接口 + 小程序三页 + 首页改工作台）、5.4 订阅授权收集（迁移 `0011` 给 `subscribe_auth` 加 `available_count` / `updated_at` + 两个 `/me` 接口 + 小程序自动授权与「通知设置」页）均已完成。5.3 是阶段 5 首次动后端（零迁移）；5.4 是阶段 5 第二个动后端的步骤（**加列不加表**，表数仍 26）。5.5 站内信 / 红点兜底是阶段 5 收官步：**加第 27 张表 `in_app_message`**（业务层 20），写入只挂签到扣课一个钩子，配三个 `/me` 读接口与小程序消息页 + 首页红点。**阶段 6 开篇（6.1 通知中心引擎）已完成**：加第 28 张表 `notification`（业务层 21），只做机制（幂等入队 + 状态机 + 重试 + worker + 通道适配器），不接具体业务事件。**6.2 微信订阅通道已完成**：`register_channel("wechat_subscribe", …)` 接到 6.1 引擎上，原子扣额度 + 降级 + 管理端测试接口，**零迁移、表数不变（28 / 业务 21）**。**6.3 服务号 + 短信通道已完成**：`channels` 数组从「全部尝试」改成「有序降级链、第一个成功即停」，新增 `wechat_mp` / `sms` 两通道 + `org_config.sms_daily_budget` 短信日预算列（迁移 `0014`，**加列不加表**）+ 管理端当日用量查询。另有 **5.4 补丁** `9a6ebd9`：修单次加课并发占位死锁（`40P01` → 409，越界改了排课写路径，可单独 revert）。**6.4 定时任务 + 漏发补偿已完成（阶段 6 收官）**：自写 asyncio 调度器（不上 APScheduler/Celery）接管 6.1 worker（互斥），驱动上课提醒（提前 1 天 + 1 小时，`org_config.lesson_reminder_hours`）与余额预警（≤5 课时，`org_config.balance_alert_threshold`，0=关）两条业务事件；wechat_subscribe 改 `ChannelSkipped` 纳入完整降级链（订阅 → 服务号 → 短信 → 站内信）；夜间静默 22:00–08:00；`sms_daily_budget` 默认 50→200；迁移 `0015`（**加列不加表**，表数仍 28 / 业务 21）；`GET /admin/notifications/stats` + `POST /admin/notifications/{id}/retry` 两个管理端接口；1000 条模拟验收通过（950 成功 / 50 漏发→retry 全救回）。**7.1 机构自助注册开通已完成（阶段 7 开工）**：公开 `POST /platform/register`（无认证，注册三件套=机构名+管理员手机号+密码）+ 试用版套餐（14 天，`_ensure_trial_plan` 插行不加表）+ web `/register` 注册页（守卫白名单），手动开通 `POST /platform/tenants` 保留不变；**零新表零加列零迁移**，表数仍 28 / 业务 21。**US-301 员工账号管理已完成（一期 P0 补齐）**：`POST/GET/PATCH /staff` + `DELETE /me/account` 四接口 + 复号复活（同 `(tenant_id, phone)` 停用账号覆盖置回 active）+ 防呆（`CANNOT_DISABLE_SELF`/`LAST_ADMIN`）+ web 员工账号页与顶栏注销入口；**零新表零加列零迁移**，表数仍 28 / 业务 21。**7.2 计费降级已完成**：到期只读闸门（写全拦 402 `SUBSCRIPTION_EXPIRED`）+ 手动续费 `POST /platform/tenants/{id}/renew` + 到期提醒横幅（≤7 天提示、≤3 天红、到期红只读）；**零新表零加列零迁移**，表数仍 28 / 业务 21。**7.3 套餐限额已完成（阶段 7 收官）**：学生数超限拦新建（402 `PLAN_LIMIT_EXCEEDED`，`POST /students` + `POST /students/bulk` 整批拒绝双入口）+ 月消息量超限停外发（`_dispatch` 入口判 `usage_meter` 当月用量、外发全 `ChannelSkipped(PLAN_MESSAGE_LIMIT)` 降级站内信兜底）+ `GET /me/subscription` 四字段 + `GET /platform/tenants/{id}/usage`；**零新表零加列零迁移**（复用 `usage_meter`/`plan`），表数仍 28 / 业务 21。
 
 ---
 
 ## §0 交接区（最新在最上面）
+
+### [7.3] 2026-11-02 · 套餐限额（学生数 + 月消息量，计量落地）· commit `待补` · CI `待补`
+
+**我改了什么**
+
+后端（**零新表零加列零迁移**，表数仍 28 / 业务层 21，复用 `usage_meter`/`plan` 既有结构）
+
+1. `app/services/subscription.py` 追加限额函数：`PlanLimits` + `get_plan_limits`（owner 连接读 plan 限额，查不到订阅→None）+ `count_active_students`（`status='active'` 在档数，owner 连接显式 tenant_id 绕 RLS）+ `check_student_limit`（单条：在档≥上限→402）+ `check_student_bulk_limit`（整批：剩余名额<本批→402）+ `record_message_sent`（`usage_meter` upsert `value=value+n`，metric=`messages`、period=`YYYY-MM`）+ `get_month_message_usage` + `message_limit_reached`（查不到订阅→False 不限流）+ `current_period`（自然月，业务时区 UTC+8）。
+2. `app/api/routes/archive.py`：`POST /students` 先 `check_student_limit`；新增 `POST /students/bulk`（**整批拒绝**，剩余名额不足整批 402 不截断半批）。编辑/转班不拦（只拦新增）。
+3. `app/services/notification_center.py::_dispatch`：**入口**判 `message_limit_reached`（进 channels 循环前判一次）→ 外发通道（wechat_subscribe/wechat_mp/sms）整级跳过、直达 `in_app` 兜底；**出口**外发通道真正送达时 `record_message_sent(n=len(parent_ids))`（站内信不占额、失败不计、多家长按实发条数）；超限走站内信时 `last_error` 留痕 `"PLAN_MESSAGE_LIMIT"`（供未来管理端详情页映射中文）。状态机/幂等/dedupe/重试一行没动。
+4. `GET /me/subscription`（`me.py`）：补 `students_used/students_max/messages_used/messages_max` 四字段。
+5. `GET /platform/tenants/{tenant_id}/usage`（`platform.py`）：platform_admin，返回 `{plan_name, max_students, students_used, max_messages, messages_used, period, subscription_end_date}`（7.4 平台后台数据源，只做接口不做 UI）。
+
+前端（`web/`）
+
+6. `http.ts`：402 按 `code` 分流——`SUBSCRIPTION_EXPIRED` 走 7.2 防抖一次性 toast；`PLAN_LIMIT_EXCEEDED` 等其它 402 照常逐次提示（**限额报错不再顶着「已到期」的帽子**）。
+7. `StudentsView.vue`：导入从「逐行 POST」改「整批 POST `/students/bulk`」；`ImportDialog.vue` 加可选 `submitBatch`（整批提交、失败整批报错）；学生列表 `students_used/students_max ≥ 90%` 时顶一条黄色提示条「在档学生 X/Y，已接近套餐上限」（非阻断，数据来自 `/me/subscription`）。
+8. `types/subscription.ts` + `api/archive.ts`：四字段 + `bulkCreateStudents`。
+9. 小程序家长端**零改动**（外发超额是服务端降级，家长只会发现收到站内信）。
+
+测试：`tests/test_plan_limits.py` 11 项真库——①学生限额（max=3 建 3 人、第 4 人 402、归档腾名额）②导入整批拒（剩余 2 导入 3 整批 402 文案带数字、剩余 5 导入 3 全成）③满员后编辑不拦 ④消息限额（max=2 发满后第 3 条外发全 skip、站内信照发、无 exhausted、last_error=PLAN_MESSAGE_LIMIT）⑤失败不计 ⑥站内信不计 ⑦多家长=实发条数 ⑧跨月重置（period 回拨上月恢复额度）⑨限额即时生效（改大立刻恢复，无缓存）⑩usage 接口数字一致 + registrar/teacher 403 ⑪`/me/subscription` 四字段。Playwright 冒烟（`scripts/smoke_playwright.py` 场景 6）：改库 `max_students=1`→建 1 人成功→1/1 黄条→第 2 人 402 文案→改大 100→成功→黄条消失，6 条断言、全程 0 条控制台报错（累计 16 断言全过）。
+
+**验证**：零迁移（alembic head 仍 `0015`）；全量真库 `374 → 385 passed`（净 +11 = test_plan_limits.py 11 项；6 个失败均为既存 Windows 事件循环 flaky——test_conflict×4 / test_ledger×1 / test_me_notifications×1，隔离跑即过、CI Linux 不受影响）；`ruff check`/`format --check` 全过；web `vue-tsc --noEmit && vite build` 过；Playwright 16 断言全过、0 控制台报错。
+
+**必须跟着改的地方**
+
+1. **US-402 设计为「用量采集 + 阶梯计费」→ 一期落地为「硬限额拦截」**：采集循环/账单生成/阶梯价都没做，只做「学生数超限拦新建 + 月消息超限停外发」。差异见下。
+2. **US-403（服务号授权）挂二期**：本步没做微信 OAuth / 服务号授权绑定，别越界。
+3. **消息量是「自然月硬额度」不是「库存」**：失败不预占也就无需退还；`usage_meter` 计数只在「外发通道真正送达」时累加（成功才计），站内信永远不占额。判定位置只在 `_dispatch` 入口 + 出口，状态机一行没碰。
+4. **计数口径「按家长拆分后一条通知 = 1」**：6.4 已按家长拆分 enqueue，多家长 payload 按 `len(parent_ids)` 累加（容忍 ±1 竞态超发，10 人机构无需上锁）。
+5. **`PLAN_MESSAGE_LIMIT` 的 skip 原因已通过 `notification.last_error` 留痕**（超限走站内信时写 `"PLAN_MESSAGE_LIMIT"`），但管理端**通知详情页尚未建**（后端 stats 接口已就绪、前端无页面），中文映射「当月消息配额已用完，已转为站内信」等详情页落地时按 reason 一并做。
+6. **学生数限额在 `POST /students` 与 `POST /students/bulk` 双入口都拦**；「整批拒绝」是后端语义，前端 `ImportDialog` 的 `submitBatch` 一次提交、失败整批报错。既有逐行 `submitRow`（家长导入等）不受影响。
+7. **`usage_meter`/`plan`/`tenant_subscription` 是平台层表**，`app_user` 无权限：限额查询/计数必须走 owner 连接（`migration_database_url`），与 7.2 订阅查询同口径。
+
+**给发令部的指令**
+
+- 清单 7.3「套餐限额」已落地：学生数超限拦新建（402、整批导入整批拒）、月消息超限停外发（降级站内信兜底、无错误感知）、`/me/subscription` 四字段 + `/platform/tenants/{id}/usage` 接口齐活。
+- 与设计差异：US-402 从「计量计费」落地为「硬限额」；US-403 服务号授权挂二期；05-api-spec 补 1.6「套餐限额」节。
+- 遗留待决策：① 用量采集/账单生成（二期）；② 服务号授权 OAuth（二期）；③ 管理端通知详情页（现在 skip reason 只落 `last_error`，无展示）。
 
 ### [7.2] 2026-11-02 · 计费降级（到期只读闸门 + 续费 + 到期提醒横幅）· commit `025a0be`（+ 测试时区修复 `2602cd2`）· CI `41345804967` 四 job 全绿
 

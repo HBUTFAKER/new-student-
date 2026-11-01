@@ -38,3 +38,15 @@ class RegisterResponse(BaseModel):
     admin_phone: str
     plan_id: UUID
     trial_end_date: date
+
+
+class TenantUsageResponse(BaseModel):
+    """租户用量（7.3，7.4 平台后台租户详情页数据源）。"""
+
+    plan_name: str
+    max_students: int
+    students_used: int
+    max_messages: int
+    messages_used: int
+    period: str
+    subscription_end_date: date
