@@ -385,6 +385,18 @@
 - `GET /me/ledger`（?type=&page=） — ⚠️家长：仅当前激活孩子；数据同 4.1 consume 含班级名
 - **响应 200**：`{ "items": [ { "type": "consume", "delta": -1, "class_name": "冲刺A班", "created_at": "…" } ], "total": 25 }`
 
+### 9.6 站内信 / 红点（清单 5.4 验收、5.5 实现）
+- 三个接口都走**机构级**家长闸门（家长 + 当前机构在实时绑定集合内），不要求选中某个孩子：
+  消息按 `parent_id` 存，跟具体孩子无关。
+- `GET /me/notifications?page=&page_size=` — 列表，`created_at` 倒序；`page_size` 默认 20、上限 50
+- **响应 200**：`{ "items": [ { "id": "uuid", "type": "lesson_deduct", "title": "小明 已签到扣课", "body": "本节课已扣 1 课时，剩余 4 课时", "student_id": "uuid", "read": false, "created_at": "…" } ], "total": 3, "unread": 2 }`
+- `GET /me/notifications/unread-count` — 红点用，只 count 不 join
+- **响应 200**：`{ "unread": 2 }`
+- `POST /me/notifications/read` — 入参 `{ "ids": ["uuid", …] }`；**`ids` 为空数组 = 全部已读**
+- **响应 200**：`{ "marked": 2 }`；跨家长 / 跨租户的 id 整批 404 `MESSAGE_NOT_FOUND`
+- **说明**：写入只有「签到扣课」一个事件源（`source_type=attendance`、`source_id=attendance.id`）；
+  发送类能力（上课提醒、群发）仍在二期。
+
 ## 10. 机构配置模块
 
 ### 10.1 员工账号与角色（US-301）
@@ -403,7 +415,7 @@
 - 家长端：`PATCH /me/profile`（自助改联系方式）、`GET /me/feedbacks`（课堂反馈）、`POST /me/leave-requests`（请假）、`GET /me/leave-requests`（请假/补课记录）、`POST /orders` + `POST /orders/{id}/pay`（在线支付）
 - 老师端：`POST /lesson-feedbacks`、`POST /teacher-leave-requests`（请假/调课申请）、`GET /students/{id}/feedbacks`（历史反馈）、`GET /teachers/me/free-slots`（空闲时段）、`POST /makeup-lessons`（补课排期）
 - 教务端：`POST /refunds`（退费）、`POST /refunds/{id}/approve`（审批）、`GET /reports/renewal-warnings`（续费预警）、`GET /reports/attendance-summary`（日报月报）、`POST /notifications/broadcast`（群发）、`POST /lessons/{id}/qr-checkin`（二维码签到）
-- 消息：`POST /notifications/subscribe`（订阅消息授权记录）、发送上课提醒/扣课通知（内部任务）
+- 消息：发送上课提醒/扣课通知（内部任务）—— **读侧（列表 / 未读数 / 已读）已随 5.5 提前到一期，见 §9.6**；`POST /notifications/subscribe` 已由 5.4 的 `GET /me/subscribe-templates` + `POST /me/subscribe-auths` 取代（作废）
 - 管理员端：`GET /reports/operations`（经营报表）、`GET /audit-logs`（审计日志）、`PATCH /org-config`（机构信息/通知模板）、`POST /campuses`（多校区）、候补名单相关
 - 平台侧：`POST /platform/tenants`（自助开通）、`GET /platform/tenants`、`GET /platform/usage`、`POST /platform/plans`、`POST /platform/tenants/{id}/service-account-auth`（机构服务号授权）、`GET /platform/dashboard`
   - **注**：`POST /platform/tenants` 的基础开通能力（建租户 + 默认套餐 + 机构配置 + 首个管理员，单事务、同名 409）已于 1.5 落地，仅限内部平台管理员调用；商业化（套餐变更、用量计费、自助注册流程）仍在二期。

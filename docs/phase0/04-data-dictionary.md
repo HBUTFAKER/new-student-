@@ -90,7 +90,7 @@
 
 ---
 
-## 业务层（19 张，均含 tenant_id）
+## 业务层（20 张，均含 tenant_id）
 
 ### student（学生）｜档案｜一期
 索引：`(tenant_id, status)`、`(tenant_id, name)`。
@@ -305,9 +305,9 @@
 
 ---
 
-## 表清单与交付对照（26 张）
+## 表清单与交付对照（27 张）
 
-> 本文原为 25 张（业务层 18）。`tenant_holiday` 为 3.2 实现时追加，故现为 26 张、业务层 19 张。
+> 本文原为 25 张（业务层 18）。`tenant_holiday` 为 3.2 实现时追加，`in_app_message` 为 5.5 实现时追加，故现为 27 张、业务层 20 张。
 > 实现与本文的偏离一律记在 `08-implementation-delta.md`，改表前先看那份。
 
 | 层 | 表 | 一期 | 二期 |
@@ -319,6 +319,7 @@
 | 业务层 | student / parent / teacher / classroom / course / class / class_enrollment / course_package / purchase / lesson_ledger / schedule_rule / lesson / attendance / parent_student / staff_account / org_config | ✓ | |
 | 业务层 | invite_code（1.6 追加，家长自助绑定凭证） | ✓ | |
 | 业务层 | tenant_holiday（3.2 追加，机构节假日） | ✓ | |
+| 业务层 | in_app_message（5.5 追加，家长站内信 / 红点兜底） | ✓ | |
 | 业务层 | refund | | ✓ |
 
 ### `invite_code`（0.4 遗漏、1.6 追加）
@@ -350,4 +351,27 @@
 > 模型属性名为 `holiday_date`（列名仍是 `date`），避免与 `datetime.date` 同名遮蔽。
 > 无 updated_at / deleted_at：节假日不做软删，DELETE 物理删除后重新登记即可（与 `invite_code` 同口径）。
 
-> 自检：业务层 19 张表全部含 tenant_id 且复合索引从 tenant_id 起；lesson_ledger 只增无余额列、consume 流水必挂 purchase_id 与 lesson_id；attendance 唯一键保证幂等；balance_snapshot 已移除；字段与 ER 图一一对应，无悬空表/字段。
+### `in_app_message`（0.4 遗漏、5.5 追加）
+
+家长站内信：微信订阅消息关掉时的兜底通道（清单 5.4 验收标准「未授权订阅的家长仍能看到未读提醒」）。
+本步只有「签到扣课」一种事件，6.1 通知中心复用这张表与它的幂等键。
+
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | UUID | PK 默认 gen_random_uuid() | |
+| tenant_id | UUID | NOT NULL FK→tenant.id | 复合索引从 tenant_id 起 |
+| parent_id | UUID | NOT NULL FK→parent.id | **按业务身份存**，不按 wechat_user_id：换手机登录还能看到 |
+| student_id | UUID | 可空 FK→student.id | 消息涉及的孩子；跨孩子消息（6.1）可为空 |
+| type | VARCHAR(32) | NOT NULL | 本步只有 `lesson_deduct`，VARCHAR 留枚举空间 |
+| title | VARCHAR(128) | NOT NULL | 如「小明 已签到扣课」 |
+| body | VARCHAR(500) | NOT NULL | 如「本节课已扣 1 课时，剩余 4 课时」 |
+| source_type | VARCHAR(32) | NOT NULL | 幂等键的一半，本步固定 `attendance` |
+| source_id | UUID | NOT NULL | 幂等键的另一半，本步是对应 `attendance.id` |
+| read_at | TIMESTAMPTZ | 可空 | NULL=未读；**读侧标记，不是 updated_at** |
+| created_at | TIMESTAMPTZ | NOT NULL 默认 now() | 列表排序依据 |
+
+> 幂等键：`UNIQUE(source_type, source_id, parent_id)` —— 同一次签到对同一个家长只留一条消息，
+> 写入一律 `INSERT ... ON CONFLICT DO NOTHING`，不做「先查后写」。
+> 列表索引：`(tenant_id, parent_id, created_at DESC)`。
+
+> 自检：业务层 20 张表全部含 tenant_id 且复合索引从 tenant_id 起；lesson_ledger 只增无余额列、consume 流水必挂 purchase_id 与 lesson_id；attendance 唯一键保证幂等；balance_snapshot 已移除；字段与 ER 图一一对应，无悬空表/字段。

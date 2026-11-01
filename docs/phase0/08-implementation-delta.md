@@ -8,11 +8,54 @@
 > - 发令部：读 §0 最新一块 + §4 已锁定约定，再出指令。别只看 01~07 原文，那是基线，不是现状。
 > - 开发：动表结构、动既有测试、动已上线接口前，先读 §1 与 §2。
 
-当前状态：**阶段 3 收官（3.5 完成）**，Alembic head = `0011_subscribe_auth_quota`，全库 26 张表（业务层 19 张）。**阶段 4 收官**：4.1 前端骨架 + 4.2 档案与班级管理页 + 4.3 排课日历与拖拽调课 + 4.4 上（三个只读报表接口）+ 4.4 下（报表前端页）全部完成。4.4 上是阶段 4 唯一动后端的部分：零迁移、零新表。**阶段 5 进行中**：5.1 家长端小程序骨架 + 登录 + 请求封装、5.2 邀请码绑定 + 多孩子切换 + 管理端发码入口、5.3 课表/余额/扣课明细（三个 `/me` 只读接口 + 小程序三页 + 首页改工作台）、5.4 订阅授权收集（迁移 `0011` 给 `subscribe_auth` 加 `available_count` / `updated_at` + 两个 `/me` 接口 + 小程序自动授权与「通知设置」页）均已完成。5.3 是阶段 5 首次动后端（零迁移）；5.4 是阶段 5 第二个动后端的步骤（**加列不加表**，表数仍 26）。另有 **5.4 补丁** `9a6ebd9`：修单次加课并发占位死锁（`40P01` → 409，越界改了排课写路径，可单独 revert）。
+当前状态：**阶段 3 收官（3.5 完成）**，Alembic head = `0011_subscribe_auth_quota`，全库 26 张表（业务层 19 张）。**阶段 4 收官**：4.1 前端骨架 + 4.2 档案与班级管理页 + 4.3 排课日历与拖拽调课 + 4.4 上（三个只读报表接口）+ 4.4 下（报表前端页）全部完成。4.4 上是阶段 4 唯一动后端的部分：零迁移、零新表。**阶段 5 进行中**：5.1 家长端小程序骨架 + 登录 + 请求封装、5.2 邀请码绑定 + 多孩子切换 + 管理端发码入口、5.3 课表/余额/扣课明细（三个 `/me` 只读接口 + 小程序三页 + 首页改工作台）、5.4 订阅授权收集（迁移 `0011` 给 `subscribe_auth` 加 `available_count` / `updated_at` + 两个 `/me` 接口 + 小程序自动授权与「通知设置」页）均已完成。5.3 是阶段 5 首次动后端（零迁移）；5.4 是阶段 5 第二个动后端的步骤（**加列不加表**，表数仍 26）。5.5 站内信 / 红点兜底是阶段 5 收官步：**加第 27 张表 `in_app_message`**（业务层 20），写入只挂签到扣课一个钩子，配三个 `/me` 读接口与小程序消息页 + 首页红点。另有 **5.4 补丁** `9a6ebd9`：修单次加课并发占位死锁（`40P01` → 409，越界改了排课写路径，可单独 revert）。
 
 ---
 
 ## §0 交接区（最新在最上面）
+
+### [5.5] 2026-11-01 13:30 · commit `cc7eee8`（后端）+ `391c692`（小程序），阶段 5 收官
+
+**我改了什么**
+
+后端（**新增第 27 张表**，业务层 20）
+
+1. 迁移 `0012_in_app_message`：`in_app_message` 一张表。
+   - 字段：`id` / `tenant_id` / `parent_id` / `student_id`(可空) / `type` / `title` / `body` / `source_type` / `source_id` / `read_at` / `created_at`。
+   - **唯一键 `(source_type, source_id, parent_id)`**；普通索引 `(tenant_id, parent_id, created_at DESC)`。
+   - RLS `ENABLE` + `FORCE` + 两条策略 + `GRANT ... TO app_user`，照 `0008` 抄。
+   - 表数 26 → **27**、业务层 19 → **20**，`test_models` / `test_migrations` 同步（§1 第 4 步）。
+   - `read_at` 是读侧标记不是 `updated_at`，`test_no_table_has_updated_at` **没动**（仍只有 `org_config` / `subscribe_auth` 两个例外）。
+2. `app/services/notification.py`：写侧 `record_lesson_deduct`（`INSERT ... ON CONFLICT DO NOTHING`，一次给该学生**全部**绑定家长各写一条）+ 读侧 `parents_of_wechat_user` / `message_page` / `unread_count` / `mark_read`。
+3. **唯一写入钩子**：`attendance._insert_seat` —— 扣课成功后、同一事务内、`deduct_count > 0` 时调用；外面再包一层 `SAVEPOINT`（`_notify_deduct`），失败只 `logger.exception` 放行。`deduct_lessons` 一行没动，扣课主流程只多了一次函数调用。
+4. 三个读接口挂 `me.py`：`GET /me/notifications`、`GET /me/notifications/unread-count`、`POST /me/notifications/read`，统一走**机构级**闸门 `parent_tenant_session`（不要求选孩子）。
+5. `app/schemas/me.py` 加五组模型；`NotificationPageSize` 默认 20、上限 50（与 `/me/ledger` 的 100 区分开）。
+
+小程序（`app.json` 变 9 页）
+
+6. `utils/messages.js` 纯逻辑（11 项 node:test）：红点 99+ 截断、行装饰、单条 / 全部已读的本地状态推进。
+7. `pages/messages/`：倒序列表、未读圆点、点单条置已读、顶部「全部已读」、下拉刷新、上拉加载、空态「暂无消息」。
+8. 首页头部加「消息」入口 + 红点数字，**onShow 拉一次** `unread-count`，不做轮询；拉取失败静默。
+
+**必须跟着改的地方**
+
+1. **幂等键语义（6.1 全靠它）**：`(source_type, source_id, parent_id)` 是「同一业务事件对同一家长只有一条」。写侧只用 `INSERT ... ON CONFLICT DO NOTHING`，**不要**改成「先查后写」。6.1 的重试发送、6.2 的订阅消息补发都复用这个键，不要再建第二套去重表。
+2. **`parent_id` 口径**：消息挂在**业务身份** `parent.id` 上，不是 `wechat_user_id`——家长换手机重新登录还能看到历史。读侧 `parent_id` 一律从 token → `wechat_user.id` → `parent.wechat_user_id` 解析（`_my_parent_ids`），**body / query 里的任何家长标识都不认**。跨家长 / 跨租户 id 整批 404 `MESSAGE_NOT_FOUND`（RLS 先挡跨租户，再按「查得到才算你的」判）。
+3. **SAVEPOINT 放行策略**：站内信插入在签到事务里的**第二层** SAVEPOINT（第一层是每个学生的 attendance savepoint）。插入失败只回滚这一层，attendance 行与扣课流水都保留——**家长的课不能因为消息表故障上不了**。6.1 加发送通道时，网络类失败要重试，但**不能**把失败抛回签到链路。
+4. **`makeup` 转正不写消息**（按 034 指令口径）：`_resolve_existing` 那条路径（补课学生正式签到）也扣课，但**没有**站内信。6.1 若要覆盖，单独加事件类型，别在这里偷偷开。
+5. **余额口径**：`body` 里的「剩余 N 课时」用 `ledger.total_balance` 现算（同一事务、扣课流水已落库）。**不要**改成「扣前余额 - 本次扣减」自己算，也别新开余额字段。
+6. **未读数不做缓存**：`unread-count` 是 `COUNT(*) WHERE read_at IS NULL`，量级小、够用。家长端红点只在首页 `onShow` 拉一次；要做轮询/WebSocket 是 6.1 的事。
+7. **`read_at` 只增不清**：`POST /read` 是单向标记，没有「标未读」。`ids` 传空数组 = 全部已读（不是「什么都不做」），前端别误用。
+8. **04 字典 / ER 图 / 05 §9.6 已同步**：第 27 张表、`in_app_message` 小节、`/me/notifications` 三接口契约；05 §11 里 `POST /notifications/subscribe` 标记为「已由 5.4 取代」。
+
+**给发令部的指令**
+
+- 阶段 5 到此**五步全齐**（5.1 骨架 / 5.2 绑定切孩子 / 5.3 三件套 / 5.4 订阅授权 / 5.5 站内信红点）。清单 5.4 的验收标准「未授权订阅的家长仍能看到未读提醒」现在有实现路径了。
+- **6.1 通知中心**建议直接在本表上加：①`type` 枚举扩到上课提醒 / 余额不足 / 课表变动；②状态机（pending/sent/failed）与重试；③如果需要「消息过期」，加 `expires_at`（走 §1 加列流程，别改 `read_at` 语义）。
+- **6.2 订阅消息发送**与站内信是**两条并行通道**：微信发成功就发成功，发不出去也仍然有站内信兜底。建议口径：订阅消息**不因为站内信已存在就跳过**（家长未必打开小程序）。
+- 本步**没做**：消息删除、消息分组/已读全部之外的批量操作、群发、未读数推送。都属于 6.1。
+- 本步唯一写路径是签到扣课；**余额不足、调课、退费等事件都没有站内信**——清单只要求第一条消息源，别按「应该有」来验收。
+- 遗留：`generate_lessons` 的批量插入与 5.4 补丁里 `create_lesson` 的重试是两套口径，前者没加重试（单请求内部冲突，优先级低）。
 
 ### [5.4 补丁] 2026-10-31 02:32 · commit `9a6ebd9`（**越界**：动了排课写路径，单独成 commit，可单独 revert）
 
@@ -771,3 +814,4 @@ POST /me/subscribe-auths
 | 5.3 | `c20eea0` | 家长端只读三件套：`GET /me/schedule`（31 天窗口、`cancelled` 不返回、`makeup` 由考勤座反推）、`/me/balance`（复用 ledger 的 `total_balance` / `student_packages`，只下有效包）、`/me/ledger`（复用 `ledger_query`，默认 20 上限 100）；统一 `child_session` 闸（角色 → 激活孩子 → 实时绑定复核 → 租户上下文）；小程序首页改工作台 + 课表/余额/明细三页 + `utils/portal.js` 纯逻辑。零迁移、零新表、零写路径改动 |
 | 5.4 | `ea4070e` | 订阅授权收集（只收不发）：迁移 `0011` 给 `subscribe_auth` 加 `available_count`（accept 累加、reject/ban 不清零）+ `updated_at`；`GET /me/subscribe-templates`（后端配置下发、小程序不硬编码）、`POST /me/subscribe-auths`（`wechat_user_id` 只认 token、未知模板整批 422、`ON CONFLICT` 原子 upsert）；新闸门 `parent_tenant_session`（机构级，不要求选孩子）；小程序 `utils/subscribe.js` 纯逻辑 18 项 + 首页自动收集 + 「通知设置」页手动重授权。加列不加表，表数仍 26 |
 | 5.4 补丁 | `9a6ebd9` | **越界改排课写路径**：`create_lesson` 的 INSERT 包 SAVEPOINT + 按 sqlstate 分流，`except` 从 `IntegrityError` 放宽到 `DBAPIError`（死锁原来是裸 `DBAPIError`，500 顶掉 409），`40P01/40001` 重试 ≤3 次后稳定落 `23P01`→409；重试路径补查 `find_conflicts` 保住 `detail.conflicts`。修 CI 必现红 |
+| 5.5 | `cc7eee8` | 站内信 / 红点兜底（阶段 5 收官）：**新增第 27 张表 `in_app_message`**（业务层 20），唯一键 `(source_type, source_id, parent_id)`；唯一写路径 = 签到扣课成功后同事务插入，外面再包 SAVEPOINT，失败放行；三个机构级读接口 `GET /me/notifications`、`/unread-count`、`POST /me/notifications/read`；小程序 `utils/messages.js` 11 项 + 消息页 + 首页红点。`read_at` 不是 updated_at，`test_no_table_has_updated_at` 未动 |
