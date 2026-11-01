@@ -4,7 +4,44 @@
 }
 
 .home__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
   padding: 8rpx 4rpx 28rpx;
+}
+
+.home__head-main {
+  flex: 1;
+}
+
+/* 不抢主视觉的小入口：文字 + 红点数字 */
+.home__msg {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 6rpx 18rpx;
+  border-radius: 999rpx;
+  border: 1rpx solid var(--border);
+  background: var(--card);
+  flex: none;
+}
+
+.home__msg-text {
+  font-size: 26rpx;
+  color: var(--text-weak);
+}
+
+.home__msg-badge {
+  margin-left: 10rpx;
+  min-width: 32rpx;
+  height: 32rpx;
+  line-height: 32rpx;
+  padding: 0 8rpx;
+  border-radius: 999rpx;
+  background: var(--danger);
+  color: #ffffff;
+  font-size: 22rpx;
+  text-align: center;
 }
 
 .home__title {

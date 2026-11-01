@@ -1,7 +1,14 @@
 <view class="page home">
   <view class="home__head">
-    <view class="home__title">家长端</view>
-    <view class="muted home__meta" wx:if="{{student}}">下拉可刷新</view>
+    <view class="home__head-main">
+      <view class="home__title">家长端</view>
+      <view class="muted home__meta" wx:if="{{student}}">下拉可刷新</view>
+    </view>
+    <!-- 站内信入口（034）：未授权订阅也能看到提醒，红点数字来自 unread-count -->
+    <view class="home__msg" bindtap="goMessages">
+      <view class="home__msg-text">消息</view>
+      <view class="home__msg-badge" wx:if="{{unreadText}}">{{unreadText}}</view>
+    </view>
   </view>
 
   <!-- 首次加载：骨架，避免白屏 -->

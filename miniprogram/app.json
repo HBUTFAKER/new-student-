@@ -7,7 +7,8 @@
     "pages/schedule/index",
     "pages/balance/index",
     "pages/ledger/index",
-    "pages/notify/index"
+    "pages/notify/index",
+    "pages/messages/index"
   ],
   "window": {
     "navigationBarBackgroundColor": "#2f6fed",

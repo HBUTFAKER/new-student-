@@ -675,6 +675,44 @@ async function main() {
     assert.equal(unknownError.code, 'SUBSCRIBE_TEMPLATE_UNKNOWN')
   })
 
+  // ---- 站内信 / 红点（5.5）----
+  // 只验读侧：写入侧（签到扣课）在 pytest 集成测试里跑真库，冒烟这里不去造课次。
+  const inbox = await http.get('/me/notifications?page=1&page_size=5', { silent: true })
+  check('站内信列表返回 {items,total,unread}', () => {
+    assert.ok(Array.isArray(inbox.items))
+    assert.equal(typeof inbox.total, 'number')
+    assert.equal(typeof inbox.unread, 'number')
+    assert.ok(inbox.total >= inbox.items.length)
+  })
+
+  const unread = await http.get('/me/notifications/unread-count', { silent: true })
+  check('未读数与列表里的 unread 同源', () => {
+    assert.equal(unread.unread, inbox.unread)
+  })
+
+  let missingError = null
+  try {
+    await http.post(
+      '/me/notifications/read',
+      { ids: ['00000000-0000-4000-8000-000000000000'] },
+      { silent: true },
+    )
+  } catch (error) {
+    missingError = error
+  }
+  check('不存在的消息 id → 404 MESSAGE_NOT_FOUND', () => {
+    assert.ok(missingError)
+    assert.equal(missingError.status, 404)
+    assert.equal(missingError.code, 'MESSAGE_NOT_FOUND')
+  })
+
+  const readAll = await http.post('/me/notifications/read', { ids: [] }, { silent: true })
+  await checkAsync('全部已读后未读归零', async () => {
+    assert.equal(typeof readAll.marked, 'number')
+    const after = await http.get('/me/notifications/unread-count', { silent: true })
+    assert.equal(after.unread, 0)
+  })
+
   check('storage 里没有 openid / unionid（红线）', () => {
     const raw = JSON.stringify(Array.from(store.entries()))
     assert.equal(raw.includes('openid'), false)

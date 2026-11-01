@@ -2,7 +2,7 @@
 
 原生微信小程序 + 原生 JS，**零 npm 依赖、零构建链**。用微信开发者工具「导入项目」直接选这个目录（`miniprogram/`）就能跑。
 
-对应 `docs/phase0/033-instruction`（5.4）：骨架 + 登录 + 绑定/切孩子（5.2）+ 课表 / 余额 / 扣课明细（5.3）+ 订阅授权收集（5.4）。
+对应 5.1~5.5：骨架 + 登录 + 绑定/切孩子（5.2）+ 课表 / 余额 / 扣课明细（5.3）+ 订阅授权收集（5.4）+ 站内信 / 红点（5.5）。
 
 ## 目录
 
@@ -19,6 +19,7 @@ miniprogram/
     portal.js                三页纯逻辑：固定 +08:00 的周窗口推算、时间格式化、按天分组、徽章、分页判定
     subscribe.js             订阅授权纯逻辑：拆 3 个一批、版本化标记（问过不再弹）、wx 回调解析、状态文案
     subscribe-runner.js      订阅授权的 wx 粘合：读模板 → 弹窗 → 上报 → 落标记，全程静默
+    messages.js              站内信纯逻辑：红点数字（99+ 截断）、行装饰、已读状态推进
     auth.js                  login / bindChild / switchStudent，三个都会重签 token
   pages/
     login/                   首屏；已有 token 直接 reLaunch；登录后按 needBind / needSwitch 分流
@@ -29,12 +30,14 @@ miniprogram/
     balance/                 课时余额：大字 total（负数红字 + 欠课时提示）、包剩余与到期日
     ledger/                  扣课明细：类型徽章 + 增减课时，上拉加载更多、下拉刷新
     notify/                  通知设置：看每条模板的授权状态，手动重新授权（给家长反悔的口子）
+    messages/                消息提醒：倒序列表 + 未读圆点 + 单条置已读 + 全部已读（5.5）
   tests/
     request-core.test.js     node:test 单测（15 项）
     session.test.js          node:test 单测（22 项）
     portal.test.js           node:test 单测（20 项）
     subscribe.test.js        node:test 单测（18 项）
-    live-smoke.js            真后端联调冒烟（手动跑，84 项）
+    messages.test.js         node:test 单测（11 项）
+    live-smoke.js            真后端联调冒烟（手动跑，88 项）
 ```
 
 ## 本地联调
@@ -55,7 +58,7 @@ miniprogram/
 
 ```bash
 # 纯逻辑单测（不依赖后端；031 依旧按要求没往 CI 里加小程序 job）
-node --test miniprogram/tests/request-core.test.js miniprogram/tests/session.test.js miniprogram/tests/portal.test.js miniprogram/tests/subscribe.test.js
+node --test miniprogram/tests/request-core.test.js miniprogram/tests/session.test.js miniprogram/tests/portal.test.js miniprogram/tests/subscribe.test.js miniprogram/tests/messages.test.js
 
 # 真后端冒烟（要先起后端；脚本会自己建学生、自己发码绑定，不依赖特定种子数据）
 MP_API_BASE=http://127.0.0.1:8000 node miniprogram/tests/live-smoke.js

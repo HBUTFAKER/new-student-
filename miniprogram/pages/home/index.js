@@ -10,6 +10,7 @@
 var http = require('../../utils/request')
 var storage = require('../../utils/storage')
 var portal = require('../../utils/portal')
+var messages = require('../../utils/messages')
 var subscribeRunner = require('../../utils/subscribe-runner')
 
 var ENTRIES = [
@@ -40,6 +41,8 @@ Page({
     errorAction: '',
     student: null,
     entries: ENTRIES,
+    unread: 0,
+    unreadText: '',
   },
 
   onShow: function () {
@@ -85,6 +88,8 @@ Page({
         })
         // 有当前孩子才收授权：没选孩子时后端会 403，别白弹一次窗
         if (active) that.collectSubscribe()
+        // 红点同理：机构级接口，没绑定时也 403，绑定后才拉
+        if (active) that.fetchUnread()
         return students
       })
       .catch(function (error) {
@@ -121,6 +126,25 @@ Page({
     subscribeRunner.collect().catch(function () {
       return []
     })
+  },
+
+  /** 未读数（034 / 5.5）：onShow 拉一次够用，不做轮询 */
+  fetchUnread: function () {
+    var that = this
+    return http
+      .get('/me/notifications/unread-count', { silent: true })
+      .then(function (result) {
+        var unread = (result && result.unread) || 0
+        that.setData({ unread: unread, unreadText: messages.homeBadge(unread) })
+      })
+      .catch(function () {
+        // 红点是锦上添花：拉不到就维持上一次的数字，不打扰家长
+        return null
+      })
+  },
+
+  goMessages: function () {
+    wx.navigateTo({ url: '/pages/messages/index' })
   },
 
   goNotify: function () {
