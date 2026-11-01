@@ -8,11 +8,43 @@
 > - 发令部：读 §0 最新一块 + §4 已锁定约定，再出指令。别只看 01~07 原文，那是基线，不是现状。
 > - 开发：动表结构、动既有测试、动已上线接口前，先读 §1 与 §2。
 
-当前状态：**阶段 3 收官（3.5 完成）**，Alembic head = `0011_subscribe_auth_quota`，全库 26 张表（业务层 19 张）。**阶段 4 收官**：4.1 前端骨架 + 4.2 档案与班级管理页 + 4.3 排课日历与拖拽调课 + 4.4 上（三个只读报表接口）+ 4.4 下（报表前端页）全部完成。4.4 上是阶段 4 唯一动后端的部分：零迁移、零新表。**阶段 5 进行中**：5.1 家长端小程序骨架 + 登录 + 请求封装、5.2 邀请码绑定 + 多孩子切换 + 管理端发码入口、5.3 课表/余额/扣课明细（三个 `/me` 只读接口 + 小程序三页 + 首页改工作台）、5.4 订阅授权收集（迁移 `0011` 给 `subscribe_auth` 加 `available_count` / `updated_at` + 两个 `/me` 接口 + 小程序自动授权与「通知设置」页）均已完成。5.3 是阶段 5 首次动后端（零迁移）；5.4 是阶段 5 第二个动后端的步骤（**加列不加表**，表数仍 26）。5.5 站内信 / 红点兜底是阶段 5 收官步：**加第 27 张表 `in_app_message`**（业务层 20），写入只挂签到扣课一个钩子，配三个 `/me` 读接口与小程序消息页 + 首页红点。**阶段 6 开篇（6.1 通知中心引擎）已完成**：加第 28 张表 `notification`（业务层 21），只做机制（幂等入队 + 状态机 + 重试 + worker + 通道适配器），不接具体业务事件。另有 **5.4 补丁** `9a6ebd9`：修单次加课并发占位死锁（`40P01` → 409，越界改了排课写路径，可单独 revert）。
+当前状态：**阶段 3 收官（3.5 完成）**，Alembic head = `0011_subscribe_auth_quota`，全库 26 张表（业务层 19 张）。**阶段 4 收官**：4.1 前端骨架 + 4.2 档案与班级管理页 + 4.3 排课日历与拖拽调课 + 4.4 上（三个只读报表接口）+ 4.4 下（报表前端页）全部完成。4.4 上是阶段 4 唯一动后端的部分：零迁移、零新表。**阶段 5 进行中**：5.1 家长端小程序骨架 + 登录 + 请求封装、5.2 邀请码绑定 + 多孩子切换 + 管理端发码入口、5.3 课表/余额/扣课明细（三个 `/me` 只读接口 + 小程序三页 + 首页改工作台）、5.4 订阅授权收集（迁移 `0011` 给 `subscribe_auth` 加 `available_count` / `updated_at` + 两个 `/me` 接口 + 小程序自动授权与「通知设置」页）均已完成。5.3 是阶段 5 首次动后端（零迁移）；5.4 是阶段 5 第二个动后端的步骤（**加列不加表**，表数仍 26）。5.5 站内信 / 红点兜底是阶段 5 收官步：**加第 27 张表 `in_app_message`**（业务层 20），写入只挂签到扣课一个钩子，配三个 `/me` 读接口与小程序消息页 + 首页红点。**阶段 6 开篇（6.1 通知中心引擎）已完成**：加第 28 张表 `notification`（业务层 21），只做机制（幂等入队 + 状态机 + 重试 + worker + 通道适配器），不接具体业务事件。**6.2 微信订阅通道已完成**：`register_channel("wechat_subscribe", …)` 接到 6.1 引擎上，原子扣额度 + 降级 + 管理端测试接口，**零迁移、表数不变（28 / 业务 21）**。另有 **5.4 补丁** `9a6ebd9`：修单次加课并发占位死锁（`40P01` → 409，越界改了排课写路径，可单独 revert）。
 
 ---
 
 ## §0 交接区（最新在最上面）
+
+### [6.2] 2026-11-02 00:10 · commit `848a910`（后端），零迁移
+
+**我改了什么**
+
+后端（**零迁移、表数不变**，28 张 / 业务层 21）
+
+1. `app/services/channels/wechat_subscribe.py`（新）：
+   - `WechatSubscribeChannel` 实现 6.1 的 `ChannelAdapter` 协议，`register_channel("wechat_subscribe", …)` 在模块导入时完成（`app/main.py` 里 `import app.services.channels.wechat_subscribe`，lifespan 没动）。
+   - **先原子扣、扣到才发**：one_time 用 `UPDATE subscribe_auth SET available_count = available_count - 1 WHERE … AND available_count > 0` 抢额度，影响 0 行 = 耗尽 → 降级；抢到 → 调客户端发 → 成功完事。
+   - **失败退还**：发送失败（临时或永久）都先 `+1` 退还；临时失败（网络类、非永久 errcode）→ 抛异常让 6.1 重试；永久失败 → 降级不重试。
+   - **降级不是失败**：额度耗尽 / 从未授权 / 找不到 openid / 模板 scene 不存在 / 微信永久拒绝 → 不抛异常，复用 `InAppChannel` 的发送逻辑写一条站内信（正文标注「已降级为站内信」），日志记 `wechat_subscribe_degraded`，通知标记该通道成功。
+   - long_term 不扣额度，但要有 `status='authorized'` 的授权行才发；one_time **不查 status**（见下「待发令部确认」）。
+   - `StubWechatSubscribeClient`（默认，离线）+ `RealWechatSubscribeClient`（access_token 带缓存 + `subscribeMessage.send`，**默认不启用**）。
+2. `POST /admin/notifications/test`（`app/api/routes/admin.py`，OfficeUser 闸门）：入参 `{parent_id, template_scene, channels?}`（channels 缺省 `["wechat_subscribe"]`），走 `enqueue_notification`，返回 `notification_id`；跨租户 / 不存在的家长 404 `PARENT_NOT_FOUND`。
+3. 测试 14 项真库（`tests/test_wechat_subscribe.py` 9 + `tests/test_admin_notifications.py` 5）：额度扣减 / 耗尽降级 / 从未授权降级 / long_term 连发不动额度 / 临时失败退还+重试 / 永久失败(43101)退还+降级不重试 / 并发扣减恰好一个赢 / 找不到 openid 降级 / scene 不存在降级 / admin 200 / teacher 403 / 跨租户 404 / 家长 403 / 故意不幂等。
+
+**验证（本地实跑）**：全新 324 passed（原 310 + 14），`ruff check` / `format --check` 全过，零迁移（`alembic upgrade head` 无新迁移）。
+
+**必须跟着改的地方（6.4 全靠这几条）**
+
+1. **真实现怎么切 env**：`build_wechat_subscribe_client(settings)` —— `wechat_stub_mode=True` 或 `app_env in {local,test}` 走 stub；生产要 `WECHAT_STUB_MODE=false` + `WECHAT_APP_SECRET`，才会构造 `RealWechatSubscribeClient`（已写好 HTTP 调用，access_token 提前 60s 过期缓存）。生产真模板的 `data` 字段映射：事件 payload 里给精确 `data`（`{"thing1":{"value":…},…}`）就直接用；否则回落 `title/body → thing1/thing2`（**只够 stub，真模板字段对不上，6.4 接事件时必须给 `data`**）。
+2. **永久错误码集合**：`{43101 拒收, 40003 openid 无效, 40037 模板无效, 41030 页面非法}` → 退还额度 + 降级。**之外的**非 0 errcode 和所有网络/HTTP 错误都当**临时失败**重试（最多 3 次）。要吞更多错误码，改 `wechat_subscribe.py` 顶部的 `PERMANENT_ERRCODES`。
+3. **测试接口幂等例外**：`dedupe_key = test:{uuid4}` 故意不幂等，每次点都真发。这是 6.2 唯一会 enqueue 的地方；6.4 接业务事件时用稳定键（`f"{event_type}:{source_id}"`），**别**抄这个测试键。
+4. **多家长临时失败会重发已成功家长**（重要）：`succeeded_channels` 只记到**通道**粒度，不记到家长。一条 payload 里多家长，若第 2 个家长临时失败，通道整体抛异常 → 6.1 重试 → 第 1 个家长会**再收一次**。6.4 接事件时**按家长拆分 enqueue**（一家长一条通知），或自行加 per-parent 已发标记；管理端测试接口是单家长，天然不受影响。
+5. **one_time 不查 status 的口径**（待发令部确认）：5.4 定了 reject/ban 不清 `available_count`，所以 one_time 被 ban / reject 后、只要额度没用完**仍会发**，直到额度耗尽才降级。这是 033 定死的额度语义 + 本步裁决「one_time 只扣额度」的直接结果；如果产品要求「ban 后彻底不碰」，需要改这里（加 status 判断）或改 5.4 的 ban 语义，二选一，别两边都改。
+
+**给发令部的指令**
+
+- 清单 6.2「授权额度正确扣减，额度耗尽自动降级」已落地：通道 + 原子扣减 + 退还 + 降级 + 管理端测试接口，14 项真库测试。**零业务事件接入**（上课提醒/余额预警的 enqueue 是 6.4 定时任务的活），本步不碰。
+- 遗留待决策：① one_time 的 reject/ban 语义（上 5）；② 多家长事件的重发口径（上 4）建议 6.4 直接按家长拆分 enqueue；③ 真模板 `data` 字段映射要等微信后台模板定稿后再填。
+- 6.4 建议：定时任务基础设施 + 事件接入（按家长拆分 enqueue）+ 接管 worker 调度（`NOTIFICATION_WORKER_ENABLED=0`）。
 
 ### [6.1] 2026-11-01 23:50 · commit `680b4e0`（后端）+ `b6bceaf`（docs），已推送；CI `41323213716` 四 job 全绿（首次即过）
 
@@ -866,3 +898,4 @@ POST /me/subscribe-auths
 | 5.4 补丁 | `9a6ebd9` | **越界改排课写路径**：`create_lesson` 的 INSERT 包 SAVEPOINT + 按 sqlstate 分流，`except` 从 `IntegrityError` 放宽到 `DBAPIError`（死锁原来是裸 `DBAPIError`，500 顶掉 409），`40P01/40001` 重试 ≤3 次后稳定落 `23P01`→409；重试路径补查 `find_conflicts` 保住 `detail.conflicts`。修 CI 必现红 |
 | 5.5 | `cc7eee8` | 站内信 / 红点兜底（阶段 5 收官）：**新增第 27 张表 `in_app_message`**（业务层 20），唯一键 `(source_type, source_id, parent_id)`；唯一写路径 = 签到扣课成功后同事务插入，外面再包 SAVEPOINT，失败放行；三个机构级读接口 `GET /me/notifications`、`/unread-count`、`POST /me/notifications/read`；小程序 `utils/messages.js` 11 项 + 消息页 + 首页红点。`read_at` 不是 updated_at，`test_no_table_has_updated_at` 未动 |
 | 6.1 | `680b4e0` | 通知中心引擎（阶段 6 开篇，只做机制不接事件）：**新增第 28 张表 `notification`**（业务层 21），`dedupe_key` 全局唯一 + 入队 `ON CONFLICT DO NOTHING`；通道适配器 Protocol + `register_channel`，本步只注册 `in_app`（写 `in_app_message` 幂等键同构、按家长 SAVEPOINT）；`process_pending_notifications` 三态状态机 + `FOR UPDATE SKIP LOCKED` + 指数退避 30s/2min/8min + `succeeded_channels` 部分成功不重发；lifespan 起进程内 worker（owner 连接绕 RLS，env 开关可关）；`updated_at` 是第 3 张带它的表、`(status,next_retry_at)` 索引是不从 tenant_id 起的登记例外。测试 9 项真库 |
+| 6.2 | （本步） | 微信订阅消息通道（零迁移）：`WechatSubscribeChannel` 接 6.1 注册表；one_time 原子扣额度（`WHERE available_count > 0`）→ 发送 → 失败退还 + 临时重试/永久降级；额度耗尽/无授权/无 openid/scene 不存在/永久拒绝全部降级写站内信不重试；long_term 有授权即发不扣额度；`StubWechatSubscribeClient` + `RealWechatSubscribeClient`（生产 env 切换）；`POST /admin/notifications/test` 人工验证接口（`test:{uuid4}` 故意不幂等）。测试 14 项真库 |

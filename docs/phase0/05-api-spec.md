@@ -410,6 +410,22 @@
 - worker：进程内轮询（lifespan 启动、`NOTIFICATION_WORKER_ENABLED=0` 关闭），6.4 定时任务接管。
 - 并发：`FOR UPDATE SKIP LOCKED`，单实例部署安全；多实例要分布式锁（6.4 评估）。
 
+### 9.8 微信订阅消息通道 + 管理端测试发送（清单 6.2 验收、6.2 实现）
+
+**通道是内部机制，不直接暴露 HTTP**：`wechat_subscribe` 通道接到 6.1 引擎的
+`register_channel` 注册表里，由 worker 处理 pending 通知时调用。唯一对外入口是管理端的
+人工验证接口：
+
+- `POST /admin/notifications/test` — **机构管理员/教务**（`admin`/`registrar`），人工验证 + 真机调试用。
+- **请求**：`{ "parent_id": "uuid", "template_scene": "lesson_remind", "channels": ["wechat_subscribe"] }`（`channels` 缺省 `["wechat_subscribe"]`）
+- **响应 200**：`{ "notification_id": "uuid" }`（已入队，异步发送）
+- **错误**：跨租户 / 不存在的家长 404 `PARENT_NOT_FOUND`；老师 / 家长 403 `OUT_OF_SCOPE`
+- **幂等例外**：测试接口 `dedupe_key = test:{uuid4}`，**故意不幂等**，每次调用都真发一次
+- **额度与降级**：one_time 模板每发一条原子扣 1（`UPDATE ... WHERE available_count > 0`），
+  扣到 0 / 从未授权 / 找不到 openid / 模板 scene 不存在 / 微信永久拒绝（43101 拒收、40003
+  openid 无效、40037 模板无效、41030 页面非法）→ 不重试，直接写 §9.6 的站内信兜底；临时失败
+  → 原子退还额度 + 进重试状态机。long_term 不扣额度，有 `authorized` 授权即可发。
+
 ## 10. 机构配置模块
 
 ### 10.1 员工账号与角色（US-301）
