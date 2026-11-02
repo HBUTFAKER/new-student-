@@ -152,6 +152,19 @@ const routes: RouteRecordRaw[] = [
     ],
   },
   {
+    path: '/platform',
+    component: () => import('@/layouts/PlatformLayout.vue'),
+    redirect: { name: 'platform-tenants' },
+    children: [
+      {
+        path: 'tenants',
+        name: 'platform-tenants',
+        component: () => import('@/views/platform/PlatformTenantsView.vue'),
+        meta: { title: '租户管理', roles: ['platform_admin'] },
+      },
+    ],
+  },
+  {
     path: '/:pathMatch(.*)*',
     name: 'not-found',
     component: () => import('@/views/NotFoundView.vue'),
@@ -168,9 +181,9 @@ router.beforeEach((to) => {
   const auth = useAuthStore()
 
   if (to.meta.public) {
-    // 已登录再访问登录/注册页 → 直接进工作台
+    // 已登录再访问登录/注册页 → 按角色进各自后台（平台管理员 vs 机构）
     if ((to.name === 'login' || to.name === 'register') && auth.isAuthenticated) {
-      return { name: 'dashboard' }
+      return auth.role === 'platform_admin' ? { name: 'platform-tenants' } : { name: 'dashboard' }
     }
     return true
   }

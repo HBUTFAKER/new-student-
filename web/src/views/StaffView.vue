@@ -8,7 +8,7 @@ import { createStaff, listStaff, updateStaff } from '@/api/staff'
 import { ApiError } from '@/api/http'
 import { usePagedList } from '@/composables/usePagedList'
 import { ROLE_LABELS, STAFF_ROLES } from '@/types/auth'
-import type { StaffRole } from '@/types/auth'
+import type { TenantRole } from '@/types/auth'
 import type { Teacher } from '@/types/archive'
 import { STAFF_STATUS_LABELS } from '@/types/staff'
 import type { Staff, StaffPayload, StaffStatus } from '@/types/staff'
@@ -78,7 +78,7 @@ const serverErrors = reactive<Record<string, string>>({})
 const form = reactive({
   name: '',
   phone: '',
-  role: 'teacher' as StaffRole,
+  role: 'teacher' as TenantRole,
   password: '',
   teacher_id: '' as string,
 })
@@ -303,7 +303,7 @@ onMounted(() => {
         <el-table-column prop="name" label="姓名" min-width="120" />
         <el-table-column prop="phone" label="手机号" width="140" />
         <el-table-column label="角色" width="130">
-          <template #default="{ row }">{{ ROLE_LABELS[row.role as StaffRole] }}</template>
+          <template #default="{ row }">{{ ROLE_LABELS[row.role as TenantRole] }}</template>
         </el-table-column>
         <el-table-column label="状态" width="90">
           <template #default="{ row }">

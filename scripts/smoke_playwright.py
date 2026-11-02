@@ -3,13 +3,16 @@
 前置：本地 PG（localhost:55432）+ uvicorn 真后端（:8000）+ vite dev（:5173）已启动。
 运行：``.venv/Scripts/python.exe scripts/smoke_playwright.py``（cwd=项目根）。
 
-覆盖场景（≥8 断言，全程 0 条控制台报错）：
+覆盖场景（≥18 断言，全程 0 条控制台报错）：
   1. admin 新建员工账号 → 列表出现新行
   2. 停用员工 → 二次确认弹窗 → 确认后状态变「停用」
   3. teacher 直输 /staff 路由 → 被拦 403
   4. teacher 顶栏「注销我的账号」→ 输密码确认 → 跳登录页且再登录 401「账号已停用」
   5. 7.2：改库 end_date=昨天 → 刷新出现红色降级横幅 → 保存写操作报 402 文案
      → 改回未来日期 → 横幅消失、写操作成功
+  6. 7.3：改库 max_students=1 → 建 1 人成功 → 黄条 → 第 2 人 402 → 改大恢复
+  7. 7.4：platform_admin 登录落平台后台 → 三卡 → 过期机构详情用量 → 续费 30 天 tag 红变绿
+     → 机构 admin 直输 /platform/tenants 被拦 403
 
 每次运行生成唯一手机号 + 独立租户，脚本幂等，不污染既有数据。
 """
@@ -82,6 +85,16 @@ async def seed() -> dict:
     admin_staff_id = uuid4()
     teacher_staff_id = uuid4()
 
+    # 7.4 平台后台：platform_admin 账号 + 一个过期机构（用于续费场景）
+    platform_phone = _gen_phone()
+    platform_pass = "smoke-platform-123456"
+    platform_tenant_id = uuid4()
+    platform_staff_id = uuid4()
+    expired_tenant_id = uuid4()
+    expired_plan_id = uuid4()
+    expired_name = f"冒烟过期机构-{uuid4().hex[:6]}"
+    expired_students = [uuid4(), uuid4()]
+
     conn = await asyncpg.connect(OWNER_DSN)
     try:
         async with conn.transaction():
@@ -142,6 +155,71 @@ async def seed() -> dict:
                 teacher_id,
                 "active",
             )
+
+            # ---- 7.4 平台后台种子：platform_admin（宿主租户）+ 过期机构 + 2 学生 ----
+            await conn.execute(
+                "INSERT INTO tenant (id, name) VALUES ($1, $2)",
+                platform_tenant_id,
+                "平台运营-冒烟",
+            )
+            await conn.execute(
+                "INSERT INTO tenant_subscription "
+                "(id, tenant_id, plan_id, start_date, end_date, status) "
+                "VALUES ($1, $2, $3, $4, $5, $6)",
+                uuid4(),
+                platform_tenant_id,
+                plan_id,
+                TODAY,
+                date(2099, 12, 31),
+                "active",
+            )
+            await conn.execute(
+                "INSERT INTO staff_account "
+                "(id, tenant_id, name, phone, password_hash, role, teacher_id, status) "
+                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+                platform_staff_id,
+                platform_tenant_id,
+                "平台运营管理员",
+                platform_phone,
+                hash_password(platform_pass),
+                "platform_admin",
+                None,
+                "active",
+            )
+
+            await conn.execute(
+                "INSERT INTO tenant (id, name) VALUES ($1, $2)",
+                expired_tenant_id,
+                expired_name,
+            )
+            await conn.execute(
+                "INSERT INTO plan (id, name, max_students, max_messages, price) "
+                "VALUES ($1, $2, $3, $4, $5)",
+                expired_plan_id,
+                "基础版",
+                100,
+                1000,
+                0,
+            )
+            await conn.execute(
+                "INSERT INTO tenant_subscription "
+                "(id, tenant_id, plan_id, start_date, end_date, status) "
+                "VALUES ($1, $2, $3, $4, $5, $6)",
+                uuid4(),
+                expired_tenant_id,
+                expired_plan_id,
+                TODAY - timedelta(days=60),
+                YESTERDAY,
+                "active",
+            )
+            for sid in expired_students:
+                await conn.execute(
+                    "INSERT INTO student (id, tenant_id, name, status) "
+                    "VALUES ($1, $2, $3, 'active')",
+                    sid,
+                    expired_tenant_id,
+                    f"过期学生-{str(sid)[:4]}",
+                )
     finally:
         await conn.close()
 
@@ -151,6 +229,10 @@ async def seed() -> dict:
         "admin_pass": admin_pass,
         "teacher_phone": teacher_phone,
         "teacher_pass": teacher_pass,
+        "platform_phone": platform_phone,
+        "platform_pass": platform_pass,
+        "expired_tenant_id": str(expired_tenant_id),
+        "expired_name": expired_name,
     }
 
 
@@ -349,6 +431,69 @@ def run(creds: dict) -> None:
             check("场景4: 注销后再登录被 401 拒绝", True)
 
             teacher_ctx.close()
+
+            # ---------------------------------------------------------------- 场景 7：7.4 平台后台
+            platform_ctx = browser.new_context()
+            platform = platform_ctx.new_page()
+            track(platform)
+
+            platform.goto(f"{FRONTEND}/login")
+            platform.get_by_placeholder("请输入手机号", exact=True).fill(creds["platform_phone"])
+            platform.get_by_placeholder("请输入密码", exact=True).fill(creds["platform_pass"])
+            platform.get_by_role("button", name="登录").click()
+            platform.wait_for_url("**/platform/tenants", timeout=15000)
+            check("场景7: platform_admin 登录后落点 /platform/tenants", True)
+
+            expect(platform.locator(".stats__card")).to_have_count(3)
+            check("场景7: 三张概览卡可见", True)
+
+            # 搜索唯一机构名：历史累积的过期租户会把目标挤到第二页，先过滤再定位
+            platform.get_by_placeholder("搜索机构名称", exact=True).fill(creds["expired_name"])
+            platform.get_by_role("button", name="搜索").click()
+
+            expired_row = platform.locator("tr").filter(has_text=creds["expired_name"])
+            expired_row.first.wait_for(state="visible", timeout=8000)
+            check("场景7: 列表出现过期机构行", True)
+            expect(expired_row.first.locator(".el-tag").get_by_text("已到期")).to_have_count(1)
+            check("场景7: 过期机构 tag=已到期（红）", True)
+
+            # 详情抽屉：用量数字与改库值一致（seed 2 学生）
+            expired_row.first.get_by_role("button", name="详情").click()
+            drawer = platform.locator(".el-drawer:visible", has_text="租户详情")
+            drawer.wait_for(state="visible", timeout=8000)
+            drawer.get_by_text("订阅信息").wait_for(state="visible", timeout=8000)
+            check("场景7: 详情抽屉订阅信息可见", True)
+            drawer.get_by_text("管理员联系方式").wait_for(state="visible", timeout=8000)
+            check("场景7: 详情抽屉管理员联系方式可见", True)
+            drawer.get_by_text("在档学生 2 / 100").wait_for(state="visible", timeout=8000)
+            check("场景7: 详情用量数字与改库值一致（2/100）", True)
+
+            # 续费 30 天 → tag 由红变绿
+            drawer.get_by_role("button", name="续费").click()
+            renew_dlg = platform.locator(".el-dialog:visible", has_text="续费")
+            renew_dlg.wait_for(state="visible", timeout=8000)
+            expect(renew_dlg.get_by_role("button", name="90 天")).to_have_count(1)
+            check("场景7: 续费弹窗快捷天数按钮可见", True)
+            renew_dlg.get_by_role("button", name="30 天").click()
+            renew_dlg.get_by_role("button", name="确认续费").click()
+            platform.get_by_text("续费成功").wait_for(state="visible", timeout=8000)
+            check("场景7: 续费 30 天成功", True)
+
+            expired_row2 = platform.locator("tr").filter(has_text=creds["expired_name"])
+            expect(expired_row2.first.locator(".el-tag").get_by_text("正常")).to_have_count(1)
+            check("场景7: 续费后 tag 由「已到期」变「正常」（绿）", True)
+
+            platform_ctx.close()
+
+            # 机构 admin 直输平台后台 → 403
+            admin2_ctx = browser.new_context()
+            admin2 = admin2_ctx.new_page()
+            track(admin2)
+            _login(admin2, creds["admin_phone"], creds["admin_pass"])
+            admin2.goto(f"{FRONTEND}/platform/tenants")
+            admin2.get_by_text("403 · 无权访问").wait_for(state="visible", timeout=10000)
+            check("场景7: 机构 admin 直输 /platform/tenants 被拦 403", "/403" in admin2.url)
+            admin2_ctx.close()
         finally:
             browser.close()
 
@@ -357,7 +502,8 @@ def main() -> None:
     creds = asyncio.run(seed())
     print(
         f"[seed] tenant={creds['tenant_id']} "
-        f"admin={creds['admin_phone']} teacher={creds['teacher_phone']}"
+        f"admin={creds['admin_phone']} teacher={creds['teacher_phone']} "
+        f"platform={creds['platform_phone']} expired={creds['expired_name']}"
     )
     run(creds)
 

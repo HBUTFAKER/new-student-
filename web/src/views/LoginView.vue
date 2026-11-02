@@ -6,6 +6,7 @@ import type { FormInstance, FormRules } from 'element-plus'
 
 import { ApiError } from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
+import type { StaffRole } from '@/types/auth'
 
 const router = useRouter()
 const route = useRoute()
@@ -29,14 +30,14 @@ const rules: FormRules<typeof form> = {
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
 }
 
-/** 只接受站内相对路径，防止 ?redirect=//evil.com 这类开放重定向 */
-function resolveRedirect(): string {
+/** 只接受站内相对路径，防止 ?redirect=//evil.com 这类开放重定向；无 redirect 按角色落点 */
+function resolveRedirect(role: StaffRole): string {
   const raw = route.query.redirect
   const target = typeof raw === 'string' ? raw : ''
   if (target.startsWith('/') && !target.startsWith('//')) {
     return target
   }
-  return '/dashboard'
+  return role === 'platform_admin' ? '/platform/tenants' : '/dashboard'
 }
 
 async function handleSubmit(): Promise<void> {
@@ -48,9 +49,9 @@ async function handleSubmit(): Promise<void> {
   errorText.value = ''
 
   try {
-    await auth.signIn({ phone: form.phone, password: form.password })
+    const role = await auth.signIn({ phone: form.phone, password: form.password })
     ElMessage.success('登录成功')
-    await router.replace(resolveRedirect())
+    await router.replace(resolveRedirect(role))
   } catch (error) {
     // 401 AUTH_FAILED 等错误：内联展示后端 message，不额外弹层
     errorText.value = error instanceof ApiError ? error.message : '登录失败，请稍后重试'

@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from uuid import UUID, uuid4
 
 from sqlalchemy import func, select
@@ -22,7 +22,8 @@ from sqlalchemy.pool import NullPool
 from app.core.config import get_settings
 from app.core.errors import AppError
 from app.models.archive import Student
-from app.models.platform import Plan, TenantSubscription, UsageMeter
+from app.models.org import StaffAccount
+from app.models.platform import Plan, Tenant, TenantSubscription, UsageMeter
 from app.services.ledger import business_today
 
 
@@ -278,3 +279,134 @@ async def message_limit_reached(db: AsyncSession, tenant_id: UUID) -> bool:
     if limits is None:
         return False
     return await get_month_message_usage(db, tenant_id) >= limits.max_messages
+
+
+# ---------------------------------------------------------------- 7.4 平台后台
+
+
+@dataclass(frozen=True, slots=True)
+class TenantSubscriptionRow:
+    """租户订阅一览行（7.4 平台后台列表/详情数据源，读平台层表走 owner 连接）。"""
+
+    tenant_id: UUID
+    name: str
+    created_at: datetime
+    plan_id: UUID
+    plan_name: str
+    start_date: date
+    end_date: date
+
+    @property
+    def days_left(self) -> int:
+        return (self.end_date - business_today()).days
+
+    @property
+    def sub_status(self) -> str:
+        """sub_status 三态（复用 7.2/7.3 判定，不发明新状态）：到期 > 试用 > 正常。"""
+
+        if business_today() > self.end_date:
+            return "expired"
+        if self.plan_name == "试用版":
+            return "trial"
+        return "active"
+
+
+def _tenant_subscription_select():
+    """tenant ⋈ tenant_subscription ⋈ plan 的 join 列清单（列表与详情共用）。"""
+
+    return (
+        select(
+            Tenant.id,
+            Tenant.name,
+            Tenant.created_at,
+            TenantSubscription.plan_id,
+            Plan.name,
+            TenantSubscription.start_date,
+            TenantSubscription.end_date,
+        )
+        .join(TenantSubscription, TenantSubscription.tenant_id == Tenant.id)
+        .join(Plan, Plan.id == TenantSubscription.plan_id)
+    )
+
+
+async def list_tenant_subscriptions(
+    db: AsyncSession, *, name: str | None = None, page: int = 1, page_size: int = 20
+) -> tuple[list[TenantSubscriptionRow], int]:
+    """租户订阅列表（7.4）：``name`` 模糊搜索 + 分页，``end_date`` 升序（最先到期在前）。"""
+
+    stmt = _tenant_subscription_select()
+    count_stmt = (
+        select(func.count())
+        .select_from(Tenant)
+        .join(TenantSubscription, TenantSubscription.tenant_id == Tenant.id)
+        .join(Plan, Plan.id == TenantSubscription.plan_id)
+    )
+    if name:
+        stmt = stmt.where(Tenant.name.ilike(f"%{name}%"))
+        count_stmt = count_stmt.where(Tenant.name.ilike(f"%{name}%"))
+
+    total = int(await db.scalar(count_stmt) or 0)
+    rows = (
+        await db.execute(
+            stmt.order_by(TenantSubscription.end_date.asc(), Tenant.created_at.asc(), Tenant.id)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+    ).all()
+    return [
+        TenantSubscriptionRow(
+            tenant_id=row[0],
+            name=row[1],
+            created_at=row[2],
+            plan_id=row[3],
+            plan_name=row[4],
+            start_date=row[5],
+            end_date=row[6],
+        )
+        for row in rows
+    ], total
+
+
+async def get_tenant_subscription_row(
+    db: AsyncSession, tenant_id: UUID
+) -> TenantSubscriptionRow | None:
+    """单租户订阅行；无订阅 → None（调用方按 500 ``SUBSCRIPTION_MISSING`` 暴露）。"""
+
+    row = (await db.execute(_tenant_subscription_select().where(Tenant.id == tenant_id))).first()
+    if row is None:
+        return None
+    return TenantSubscriptionRow(
+        tenant_id=row[0],
+        name=row[1],
+        created_at=row[2],
+        plan_id=row[3],
+        plan_name=row[4],
+        start_date=row[5],
+        end_date=row[6],
+    )
+
+
+async def get_tenant_admin_contact(
+    db: AsyncSession, tenant_id: UUID
+) -> tuple[str | None, str | None]:
+    """机构管理员联系方式（role='admin' 且 active，按创建时间取最早一条）。
+
+    ``staff_account`` 是业务层表（有 RLS），这里走 owner 连接显式 ``tenant_id`` 过滤绕 RLS。
+    平台运营宿主租户的账号是 ``platform_admin`` 角色，查不到 admin 时返回 ``(None, None)``。
+    """
+
+    row = (
+        await db.execute(
+            select(StaffAccount.name, StaffAccount.phone)
+            .where(
+                StaffAccount.tenant_id == tenant_id,
+                StaffAccount.role == "admin",
+                StaffAccount.status == "active",
+            )
+            .order_by(StaffAccount.created_at.asc(), StaffAccount.id)
+            .limit(1)
+        )
+    ).first()
+    if row is None:
+        return None, None
+    return row[0], row[1]

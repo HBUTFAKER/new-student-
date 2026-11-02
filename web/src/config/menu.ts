@@ -58,7 +58,8 @@ const TEACHER_MENU: MenuItem[] = [
 ]
 
 export function menuForRole(role: StaffRole | null): MenuItem[] {
-  if (role === null) return []
+  // 平台管理员走独立 PlatformLayout，不挂机构侧栏
+  if (role === null || role === 'platform_admin') return []
   if (role === 'teacher') return TEACHER_MENU
   return OFFICE_MENU.filter((item) => !item.roles || item.roles.includes(role))
 }

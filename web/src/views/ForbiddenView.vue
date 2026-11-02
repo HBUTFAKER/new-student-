@@ -2,10 +2,17 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
+import { useAuthStore } from '@/stores/auth'
+
 const route = useRoute()
 const router = useRouter()
+const auth = useAuthStore()
 
 const from = computed(() => (typeof route.query.from === 'string' ? route.query.from : ''))
+
+function goHome(): void {
+  router.replace(auth.role === 'platform_admin' ? '/platform/tenants' : '/dashboard')
+}
 </script>
 
 <template>
@@ -13,7 +20,7 @@ const from = computed(() => (typeof route.query.from === 'string' ? route.query.
     <el-result icon="warning" title="403 · 无权访问" sub-title="当前账号没有进入该页面的权限">
       <template #extra>
         <p v-if="from" class="forbidden__from">被拦截的地址：{{ from }}</p>
-        <el-button type="primary" @click="router.replace('/dashboard')">返回工作台</el-button>
+        <el-button type="primary" @click="goHome">返回后台</el-button>
       </template>
     </el-result>
   </div>

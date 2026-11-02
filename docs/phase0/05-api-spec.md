@@ -85,6 +85,22 @@
 - **`POST /students/bulk`（批量导入，7.3 落地）**：请求 `{ "items": [StudentCreate, ...] }`（1–200 人）；**整批拒绝语义**——剩余名额 M < 本批 N → 整批不入库、402 `PLAN_LIMIT_EXCEEDED`，detail「剩余名额 M 个，本批 N 人，请归档学生或联系平台扩容」；不截断半批入库。
 - **消息量限额（自然月）**：`usage_meter`（metric=`messages`、period=`YYYY-MM`，复用 0.3 既有表）当月已用量 ≥ `plan.max_messages` → 通知外发通道（wechat_subscribe/wechat_mp/sms）全部 `ChannelSkipped(reason=PLAN_MESSAGE_LIMIT)`，降级链直达 `in_app` 站内信兜底、无 exhausted（skip 不是失败）；站内信不占额、失败不计；计数「外发通道成功一条 = 1」（多家长按实发条数，单条原子 upsert `value=value+n`）。
 
+### 1.7 平台后台（7.4 落地，零新表零加列）
+
+| 接口 | 权限 |
+|------|------|
+| `GET /platform/tenants` | ✅仅 platform_admin |
+| `GET /platform/tenants/{tenant_id}` | ✅仅 platform_admin |
+| `GET /platform/plans` | ✅仅 platform_admin |
+| `POST /platform/tenants`（手动开通） | ✅仅 platform_admin（7.1 已落地，本步复用） |
+
+- **`GET /platform/tenants` 列表**：`?name=`（机构名 ilike 模糊，可空）+ `?page=`/`?page_size=` 分页；`end_date` 升序（最先到期在前）。响应 `{ items: [...], total }`，每行：`tenant_id / name / created_at / plan_name / plan_id / start_date / end_date / days_left / sub_status / students_used / messages_used / period`。
+  - `sub_status` 三态（复用 7.2/7.3 判定，不发明新状态）：`today > end_date` → `expired`；`plan.name='试用版'` → `trial`；其余 → `active`。
+  - `students_used`/`messages_used` 复用 7.3 的 `count_active_students`/`get_month_message_usage`；租户量小逐租户计算，统一走 owner 连接绕 RLS。
+- **`GET /platform/tenants/{tenant_id}` 详情**：列表字段全量 + `max_students / max_messages` + `admin_name / admin_phone`（机构管理员 role='admin' 且 active，按创建时间最早一条；查不到返回 `null`）。租户不存在 404 `TENANT_NOT_FOUND`；订阅缺失 500 `SUBSCRIPTION_MISSING`（provision 保证有）。
+- **`GET /platform/plans`**：`{ items: [{ id, name, max_students, max_messages }] }`，续费弹窗换套餐下拉数据源。
+- **一期范围（本步确立）**：只读列表 + 详情 + 续费 + 手动开通；租户停用/删除、平台管理员账号管理、冒充租户登录（impersonation）挂二期。
+
 
 ## 2. 档案模块
 

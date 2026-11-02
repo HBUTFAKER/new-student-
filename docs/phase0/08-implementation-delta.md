@@ -8,11 +8,45 @@
 > - 发令部：读 §0 最新一块 + §4 已锁定约定，再出指令。别只看 01~07 原文，那是基线，不是现状。
 > - 开发：动表结构、动既有测试、动已上线接口前，先读 §1 与 §2。
 
-当前状态：**阶段 3 收官（3.5 完成）**，Alembic head = `0011_subscribe_auth_quota`，全库 26 张表（业务层 19 张）。**阶段 4 收官**：4.1 前端骨架 + 4.2 档案与班级管理页 + 4.3 排课日历与拖拽调课 + 4.4 上（三个只读报表接口）+ 4.4 下（报表前端页）全部完成。4.4 上是阶段 4 唯一动后端的部分：零迁移、零新表。**阶段 5 进行中**：5.1 家长端小程序骨架 + 登录 + 请求封装、5.2 邀请码绑定 + 多孩子切换 + 管理端发码入口、5.3 课表/余额/扣课明细（三个 `/me` 只读接口 + 小程序三页 + 首页改工作台）、5.4 订阅授权收集（迁移 `0011` 给 `subscribe_auth` 加 `available_count` / `updated_at` + 两个 `/me` 接口 + 小程序自动授权与「通知设置」页）均已完成。5.3 是阶段 5 首次动后端（零迁移）；5.4 是阶段 5 第二个动后端的步骤（**加列不加表**，表数仍 26）。5.5 站内信 / 红点兜底是阶段 5 收官步：**加第 27 张表 `in_app_message`**（业务层 20），写入只挂签到扣课一个钩子，配三个 `/me` 读接口与小程序消息页 + 首页红点。**阶段 6 开篇（6.1 通知中心引擎）已完成**：加第 28 张表 `notification`（业务层 21），只做机制（幂等入队 + 状态机 + 重试 + worker + 通道适配器），不接具体业务事件。**6.2 微信订阅通道已完成**：`register_channel("wechat_subscribe", …)` 接到 6.1 引擎上，原子扣额度 + 降级 + 管理端测试接口，**零迁移、表数不变（28 / 业务 21）**。**6.3 服务号 + 短信通道已完成**：`channels` 数组从「全部尝试」改成「有序降级链、第一个成功即停」，新增 `wechat_mp` / `sms` 两通道 + `org_config.sms_daily_budget` 短信日预算列（迁移 `0014`，**加列不加表**）+ 管理端当日用量查询。另有 **5.4 补丁** `9a6ebd9`：修单次加课并发占位死锁（`40P01` → 409，越界改了排课写路径，可单独 revert）。**6.4 定时任务 + 漏发补偿已完成（阶段 6 收官）**：自写 asyncio 调度器（不上 APScheduler/Celery）接管 6.1 worker（互斥），驱动上课提醒（提前 1 天 + 1 小时，`org_config.lesson_reminder_hours`）与余额预警（≤5 课时，`org_config.balance_alert_threshold`，0=关）两条业务事件；wechat_subscribe 改 `ChannelSkipped` 纳入完整降级链（订阅 → 服务号 → 短信 → 站内信）；夜间静默 22:00–08:00；`sms_daily_budget` 默认 50→200；迁移 `0015`（**加列不加表**，表数仍 28 / 业务 21）；`GET /admin/notifications/stats` + `POST /admin/notifications/{id}/retry` 两个管理端接口；1000 条模拟验收通过（950 成功 / 50 漏发→retry 全救回）。**7.1 机构自助注册开通已完成（阶段 7 开工）**：公开 `POST /platform/register`（无认证，注册三件套=机构名+管理员手机号+密码）+ 试用版套餐（14 天，`_ensure_trial_plan` 插行不加表）+ web `/register` 注册页（守卫白名单），手动开通 `POST /platform/tenants` 保留不变；**零新表零加列零迁移**，表数仍 28 / 业务 21。**US-301 员工账号管理已完成（一期 P0 补齐）**：`POST/GET/PATCH /staff` + `DELETE /me/account` 四接口 + 复号复活（同 `(tenant_id, phone)` 停用账号覆盖置回 active）+ 防呆（`CANNOT_DISABLE_SELF`/`LAST_ADMIN`）+ web 员工账号页与顶栏注销入口；**零新表零加列零迁移**，表数仍 28 / 业务 21。**7.2 计费降级已完成**：到期只读闸门（写全拦 402 `SUBSCRIPTION_EXPIRED`）+ 手动续费 `POST /platform/tenants/{id}/renew` + 到期提醒横幅（≤7 天提示、≤3 天红、到期红只读）；**零新表零加列零迁移**，表数仍 28 / 业务 21。**7.3 套餐限额已完成（阶段 7 收官）**：学生数超限拦新建（402 `PLAN_LIMIT_EXCEEDED`，`POST /students` + `POST /students/bulk` 整批拒绝双入口）+ 月消息量超限停外发（`_dispatch` 入口判 `usage_meter` 当月用量、外发全 `ChannelSkipped(PLAN_MESSAGE_LIMIT)` 降级站内信兜底）+ `GET /me/subscription` 四字段 + `GET /platform/tenants/{id}/usage`；**零新表零加列零迁移**（复用 `usage_meter`/`plan`），表数仍 28 / 业务 21。
+当前状态：**阶段 3 收官（3.5 完成）**，Alembic head = `0011_subscribe_auth_quota`，全库 26 张表（业务层 19 张）。**阶段 4 收官**：4.1 前端骨架 + 4.2 档案与班级管理页 + 4.3 排课日历与拖拽调课 + 4.4 上（三个只读报表接口）+ 4.4 下（报表前端页）全部完成。4.4 上是阶段 4 唯一动后端的部分：零迁移、零新表。**阶段 5 进行中**：5.1 家长端小程序骨架 + 登录 + 请求封装、5.2 邀请码绑定 + 多孩子切换 + 管理端发码入口、5.3 课表/余额/扣课明细（三个 `/me` 只读接口 + 小程序三页 + 首页改工作台）、5.4 订阅授权收集（迁移 `0011` 给 `subscribe_auth` 加 `available_count` / `updated_at` + 两个 `/me` 接口 + 小程序自动授权与「通知设置」页）均已完成。5.3 是阶段 5 首次动后端（零迁移）；5.4 是阶段 5 第二个动后端的步骤（**加列不加表**，表数仍 26）。5.5 站内信 / 红点兜底是阶段 5 收官步：**加第 27 张表 `in_app_message`**（业务层 20），写入只挂签到扣课一个钩子，配三个 `/me` 读接口与小程序消息页 + 首页红点。**阶段 6 开篇（6.1 通知中心引擎）已完成**：加第 28 张表 `notification`（业务层 21），只做机制（幂等入队 + 状态机 + 重试 + worker + 通道适配器），不接具体业务事件。**6.2 微信订阅通道已完成**：`register_channel("wechat_subscribe", …)` 接到 6.1 引擎上，原子扣额度 + 降级 + 管理端测试接口，**零迁移、表数不变（28 / 业务 21）**。**6.3 服务号 + 短信通道已完成**：`channels` 数组从「全部尝试」改成「有序降级链、第一个成功即停」，新增 `wechat_mp` / `sms` 两通道 + `org_config.sms_daily_budget` 短信日预算列（迁移 `0014`，**加列不加表**）+ 管理端当日用量查询。另有 **5.4 补丁** `9a6ebd9`：修单次加课并发占位死锁（`40P01` → 409，越界改了排课写路径，可单独 revert）。**6.4 定时任务 + 漏发补偿已完成（阶段 6 收官）**：自写 asyncio 调度器（不上 APScheduler/Celery）接管 6.1 worker（互斥），驱动上课提醒（提前 1 天 + 1 小时，`org_config.lesson_reminder_hours`）与余额预警（≤5 课时，`org_config.balance_alert_threshold`，0=关）两条业务事件；wechat_subscribe 改 `ChannelSkipped` 纳入完整降级链（订阅 → 服务号 → 短信 → 站内信）；夜间静默 22:00–08:00；`sms_daily_budget` 默认 50→200；迁移 `0015`（**加列不加表**，表数仍 28 / 业务 21）；`GET /admin/notifications/stats` + `POST /admin/notifications/{id}/retry` 两个管理端接口；1000 条模拟验收通过（950 成功 / 50 漏发→retry 全救回）。**7.1 机构自助注册开通已完成（阶段 7 开工）**：公开 `POST /platform/register`（无认证，注册三件套=机构名+管理员手机号+密码）+ 试用版套餐（14 天，`_ensure_trial_plan` 插行不加表）+ web `/register` 注册页（守卫白名单），手动开通 `POST /platform/tenants` 保留不变；**零新表零加列零迁移**，表数仍 28 / 业务 21。**US-301 员工账号管理已完成（一期 P0 补齐）**：`POST/GET/PATCH /staff` + `DELETE /me/account` 四接口 + 复号复活（同 `(tenant_id, phone)` 停用账号覆盖置回 active）+ 防呆（`CANNOT_DISABLE_SELF`/`LAST_ADMIN`）+ web 员工账号页与顶栏注销入口；**零新表零加列零迁移**，表数仍 28 / 业务 21。**7.2 计费降级已完成**：到期只读闸门（写全拦 402 `SUBSCRIPTION_EXPIRED`）+ 手动续费 `POST /platform/tenants/{id}/renew` + 到期提醒横幅（≤7 天提示、≤3 天红、到期红只读）；**零新表零加列零迁移**，表数仍 28 / 业务 21。**7.3 套餐限额已完成（阶段 7 收官）**：学生数超限拦新建（402 `PLAN_LIMIT_EXCEEDED`，`POST /students` + `POST /students/bulk` 整批拒绝双入口）+ 月消息量超限停外发（`_dispatch` 入口判 `usage_meter` 当月用量、外发全 `ChannelSkipped(PLAN_MESSAGE_LIMIT)` 降级站内信兜底）+ `GET /me/subscription` 四字段 + `GET /platform/tenants/{id}/usage`；**零新表零加列零迁移**（复用 `usage_meter`/`plan`），表数仍 28 / 业务 21。**7.4 平台后台已完成（阶段 7 收官）**：`GET /platform/tenants`（列表：name 模糊 + 分页 + end_date 升序 + sub_status 三态 + 用量）、`GET /platform/tenants/{id}`（详情：列表字段 + 额度 + admin_name/phone）、`GET /platform/plans`（换套餐下拉）三只读接口（`platform_admin` 收口）；web 新增 `PlatformLayout`（深色顶栏平台标识）+ `PlatformTenantsView`（三卡 + 表格 + 搜索/分页 + 手动开通弹窗 + 详情抽屉进度条 + 续费弹窗）+ `/platform/tenants` 路由（`roles=['platform_admin']`）+ platform_admin 登录落点；`StaffRole` 扩 `platform_admin`；**零新表零加列零迁移**，表数仍 28 / 业务 21。
 
 ---
 
 ## §0 交接区（最新在最上面）
+
+### [7.4] 2026-11-02 · 平台后台（platform_admin 专属：租户列表 / 详情 / 续费 / 开通）· commit `待补` · CI `待补`
+
+**我改了什么**
+
+后端（**零新表零加列零迁移**，表数仍 28 / 业务层 21，纯只读 + 复用既有写接口）
+
+1. `GET /platform/tenants`（列表）：`name` 模糊（ilike）+ 分页，`end_date` 升序（最先到期在前）；每行 `tenant_id/name/created_at/plan_name/plan_id/start_date/end_date/days_left/sub_status/students_used/messages_used/period`；`sub_status` 三态复用 7.2/7.3（`expired`/`trial`/`active`，到期优先于试用判定）；用量逐租户 `count_active_students`/`get_month_message_usage`（租户量小，共用同一个 owner 会话循环查，无 N+1 连接）。
+2. `GET /platform/tenants/{tenant_id}`（详情）：列表字段全量 + `max_students/max_messages` + `admin_name/admin_phone`（机构管理员 `role='admin'` 且 active，按创建时间最早一条；查不到返 null）。租户不存在 404 `TENANT_NOT_FOUND`；订阅缺失 500 `SUBSCRIPTION_MISSING`。
+3. `GET /platform/plans`：续费弹窗换套餐下拉数据源（只读）。
+4. 越权收口：三个新接口 + 既有 renew/usage 全 `require_role("platform_admin")`；机构角色直输 403、未登录 401。
+
+前端（`web/`）
+
+5. `types/auth.ts`：`StaffRole` 扩 `platform_admin`；`isStaffRole` 认 platform_admin（登录不拦）；`ROLE_LABELS` 加「平台管理员」；机构内 `STAFF_ROLES` 仍三角色（新建账号不暴露 platform_admin），`types/staff.ts` 的 role 改用 `TenantRole`。
+6. 新增 `PlatformLayout.vue`（深色顶栏 + 琥珀「平」标 + `PLATFORM` 徽标，与机构白侧栏明显区分）+ 路由 `/platform/tenants`（`roles=['platform_admin']`）。
+7. 新增 `PlatformTenantsView.vue`：三张概览卡（总数/试用中/临期+已到期）+ 租户表格（状态 tag：试用蓝/正常绿/临期≤7 黄/已到期红）+ name 搜索 + 分页 + 手动开通弹窗（成功提示含初始管理员手机号）+ 详情抽屉（订阅信息 + 学生/消息进度条 + 管理员联系方式）+ 续费弹窗（30/90/365 快捷 + 自定义 + 换套餐下拉）。
+8. 登录落点：platform_admin 登录 → `/platform/tenants`；机构角色落点不变；`ForbiddenView` 返回按钮按角色跳转。
+9. 平台后台不挂 7.2 到期横幅 / 7.3 学生黄条（`PlatformLayout` 不调 `/me/subscription`）；小程序家长端**零改动**。
+
+测试：`tests/test_platform_admin.py` 5 项真库——①列表三态+end_date 升序+name 模糊+分页 ②详情全字段（含 admin_name/phone）+404 ③越权（admin/registrar/teacher × 列表/详情/usage/plans/renew 全 403 + 未登录 401）④续费联动（end_date 从 max(today,end_date) 顺延 + sub_status expired→active）⑤platform_admin 登录 role=platform_admin/tenant_id=null。Playwright 冒烟场景 7：platform_admin 落点、三卡、过期机构 tag=已到期、详情用量（改库 2 学生 → 抽屉 2/100）、续费 30 天 tag 红变绿、机构 admin 直输 `/platform/tenants` 被拦 403。
+
+**必须跟着改的地方**
+
+1. **US-404（平台运营看板）一期只做三张概览卡**，完整看板（趋势/图表/多维筛选）二期。
+2. **平台后台一期范围**：只读列表 + 详情 + 续费 + 开通；租户停用/删除、平台管理员账号管理、impersonation 全挂二期。
+3. **平台管理员账号仍由 seed/SQL 创建**（`seed_demo.py` 的「平台运营」租户 + platform_admin 账号），本步没做平台管理员管理 UI。
+4. **platform_admin 有宿主租户**（staff_account.tenant_id 非空，指向「平台运营」），它会出现在租户列表里——一期如实列出，未做排除。
+
+**给发令部的指令**
+
+- 清单 7.4「平台后台」已落地：platform_admin 登录落平台后台，租户列表/详情/续费/开通齐活，机构角色直输 `/platform/*` 一律 403（register 除外）。
+- 与设计差异：05-api-spec 补 1.7「平台后台」节（`GET /platform/tenants`、`GET /platform/tenants/{id}`、`GET /platform/plans`）；US-404 一期收敛为三张概览卡。
+- 遗留待决策：① 完整运营看板（二期）；② 租户停用/删除 + 平台管理员管理 + impersonation（二期）；③ 列表是否排除 platform_admin 宿主租户。
 
 ### [7.3] 2026-11-02 · 套餐限额（学生数 + 月消息量，计量落地）· commit `c38d8b8` · CI `41350871874` 四 job 全绿
 

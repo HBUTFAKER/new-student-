@@ -1,6 +1,6 @@
 """Platform operations schemas (internal provisioning only in phase 1)."""
 
-from datetime import date
+from datetime import date, datetime
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -50,3 +50,50 @@ class TenantUsageResponse(BaseModel):
     messages_used: int
     period: str
     subscription_end_date: date
+
+
+# ---------------------------------------------------------------- 7.4 平台后台
+
+
+class TenantListItem(BaseModel):
+    """租户列表行（7.4 平台后台列表页）。"""
+
+    tenant_id: UUID
+    name: str
+    created_at: datetime
+    plan_name: str
+    plan_id: UUID
+    start_date: date
+    end_date: date
+    days_left: int
+    sub_status: str  # expired / trial / active
+    students_used: int
+    messages_used: int
+    period: str
+
+
+class TenantListResponse(BaseModel):
+    items: list[TenantListItem]
+    total: int
+
+
+class TenantDetailResponse(TenantListItem):
+    """租户详情 = 列表字段全量 + 套餐额度 + 机构管理员联系方式。"""
+
+    max_students: int
+    max_messages: int
+    admin_name: str | None
+    admin_phone: str | None
+
+
+class PlanItem(BaseModel):
+    """套餐（7.4 续费弹窗换套餐下拉数据源）。"""
+
+    id: UUID
+    name: str
+    max_students: int
+    max_messages: int
+
+
+class PlanListResponse(BaseModel):
+    items: list[PlanItem]
