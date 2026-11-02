@@ -14,6 +14,39 @@
 
 ## §0 交接区（最新在最上面）
 
+### [7.5] 2026-11-02 · 越权对账测试（权限矩阵收口 + RLS 覆盖审计 + 账本对账入 CI）· commit `待补` · CI `待补`
+
+**我改了什么**（纯测试与脚本，**零业务功能变更、零迁移零新表零加列**，表数仍 28 / 业务层 21）
+
+新增三个测试文件，进 CI 常跑（`RUN_DB_TESTS=1`）：
+
+1. `tests/test_permission_matrix.py`（12 项真库 + 1 xfail）：把 02 矩阵一期行逐行落成参数化测试，三道闸门各测各的——
+   - **租户闸门**（红线一）：token A 访问租户 B 的学生/班级/教室/老师/课次/补课/缴费/流水全打一遍 → 一律 404，绝不 403/2xx。
+   - **角色闸门**：OfficeUser 写接口 teacher/parent 全 403（含 transfer/refund/makeup/adjust/调课）；OfficeUser 只读（报表/排课/节假日/课次/老师列表）teacher/parent 403；TeacherOrOffice（学生/教室/班级/名单/点名结果/请假规则）parent 403；LedgerAudience（balance/ledger/packages）四角色 200；staff 接口 registrar/teacher/parent 403；platform 接口机构角色全 403；家长端 /me 接口 staff 角色全 403。
+   - **数据归属闸门**：parent 绑定 a1 200 / 同租户未绑定 a2 403 / 跨租户 b 404；teacher 任教班 a1/a2 200 / 非任教班 a3 403 / 跨租户 404。
+   - 红线二：直改余额接口不存在（404/405）。
+2. `tests/test_rls_coverage.py`（3 项）：查 `information_schema.columns`（tenant_id 列）+ `pg_class.relrowsecurity` + `pg_policies`，断言业务层 21 表 + `subscribe_auth` 全部「有 tenant_id + RLS enabled + 至少一条 policy + policy 锚定 `app.tenant_id` GUC」；白名单表（`tenant_subscription`/`usage_meter`）有 tenant_id 但无 RLS；无 tenant_id 的表（tenant/plan/wechat_user/wechat_openid）不该有 tenant_id 列也不该启 RLS。
+3. `tests/test_reconcile.py`（2 项）：双租户各自独立走「购课→扣课→补课/退费」完整路径，`reconcile` 两口径（`--tenant` 零差异 + 全库口径我造租户零泄漏）断言零差异、双租户互不污染；负路径直改 SQL 把 consume 的 `lesson_id` 置 NULL → 对账报 `row_shape`（证明不是恒真）。
+
+**测试数变化**：`396 → 413 passed + 1 xfailed`（净 +17：RLS 审计 3 + 对账 2 + 矩阵 12；+1 xfailed 是冲突行）。
+
+**与设计文档的冲突清单（口径 1，交发令部裁决，未擅改实现）**
+
+| # | 矩阵预期 | 实现现状 | 建议 |
+|---|---------|---------|------|
+| 1 | 「课时包定义 增/改/删（US-205）」一期 ✅office | 无独立 CRUD 接口，课时包随购课快照生成（`create_purchase` 里 `CoursePackage` 快照） | 二选一：①矩阵改「课时包无独立定义，随购课快照」；②二期补课时包模板管理。测试 `test_course_package_definition_crud` 已 xfail(strict=False) |
+| 2 | 「退费申请（US-211）」「退费/调整审批（US-303）」标二期（退费需审批） | 实现已做一期直接退费（`POST /refunds` OfficeUser，无审批流） | 实现超前：要么矩阵把退费一期化，要么二期补审批流（矩阵红线 V-06「教务无审批直接退费」目前被实现突破） |
+
+**洞清单：零洞**。三道闸门 + RLS 审计 + 对账全绿，没逮到「跨租户 2xx / 漏 require_role / parent 摸非绑定数据 / 有 tenant_id 却无 RLS」等真洞。本步未产生修复 commit。
+
+**RLS 白名单最终版**（有 tenant_id 但故意无 RLS，0.3 决策 6）：`tenant_subscription`（platform_admin 跨租户聚合订阅）、`usage_meter`（owner 跨租户累计用量）；无 tenant_id 故无 RLS：`tenant`/`plan`/`wechat_user`/`wechat_openid`。
+
+**给发令部的指令**
+
+- 清单 7.5「越权对账测试」已落地：权限矩阵 / RLS 审计 / 账本对账三个文件进 CI 常跑，后续任何新接口必须同步补矩阵行（已写入 §4 锁定约定）。
+- 需要发令部裁决的 2 条冲突见上表；洞清单零洞，未动任何业务代码。
+- 前端/小程序**零改动**，Playwright 不加新场景（既有 27 断言回归即过）。
+
 ### [7.4] 2026-11-02 · 平台后台（platform_admin 专属：租户列表 / 详情 / 续费 / 开通）· commit `68a8a06` · CI `41399622266` 四 job 全绿
 
 **我改了什么**
@@ -1162,6 +1195,7 @@ DELETE /me/account     { password }                                     → 204
 | 签到幂等 | 唯一键 `(tenant_id, lesson_id, student_id)` 是裁判；命中最终状态 → `deduplicated`，命中 `makeup` → 原地转正 + 扣课 | 3.5 |
 | 签到扣课 | `present` 扣 1；`leave`/`absent` 按 `org_config.absence_deduct_rule`；只调 `deduct_lessons`，禁止 grant/refund/adjust | 3.5 |
 | 签到事务 | 整批一个事务 + 每学生一层 SAVEPOINT；余额不足只回滚该学生，不写 attendance 行 | 3.5 |
+| 权限收口测试 | 任何新接口必须同步在 `tests/test_permission_matrix.py` 补对应矩阵行（角色/租户/归属三道闸门），新表必须过 `tests/test_rls_coverage.py` 的 RLS 审计；三文件进 CI 常跑 | 7.5 |
 
 ---
 
