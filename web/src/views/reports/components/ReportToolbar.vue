@@ -109,7 +109,7 @@ function applyPreset(build: () => DateRange): void {
 
 .toolbar__hint {
   margin-top: 8px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   font-size: 12px;
 }
 </style>

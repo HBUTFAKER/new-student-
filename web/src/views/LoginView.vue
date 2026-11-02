@@ -141,14 +141,14 @@ async function handleSubmit(): Promise<void> {
   justify-content: center;
   min-height: 100%;
   padding: 24px;
-  background: linear-gradient(135deg, #eef4ff 0%, #f7f9fc 55%, #eaf1fb 100%);
+  background: var(--app-auth-gradient);
 }
 
 .login__card {
   width: 100%;
   max-width: 400px;
   padding: 36px 32px 32px;
-  background-color: #ffffff;
+  background-color: var(--el-bg-color);
   border-radius: 14px;
   box-shadow: 0 18px 48px rgba(31, 45, 61, 0.1);
 }
@@ -166,8 +166,8 @@ async function handleSubmit(): Promise<void> {
   height: 44px;
   margin-bottom: 12px;
   border-radius: 12px;
-  background-color: #409eff;
-  color: #ffffff;
+  background-color: var(--el-color-primary);
+  color: var(--el-bg-color);
   font-size: 20px;
   font-weight: 600;
 }
@@ -181,7 +181,7 @@ async function handleSubmit(): Promise<void> {
 .login__subtitle {
   margin: 8px 0 0;
   font-size: 13px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 .login__error {
@@ -197,11 +197,11 @@ async function handleSubmit(): Promise<void> {
   margin-top: 18px;
   text-align: center;
   font-size: 13px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 .login__link {
-  color: #409eff;
+  color: var(--el-color-primary);
   font-weight: 500;
 }
 

@@ -56,7 +56,7 @@ async function handleSignOut(): Promise<void> {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background-color: #f3f4f6;
+  background-color: var(--app-platform-page);
 }
 
 .platform__topbar {
@@ -65,8 +65,8 @@ async function handleSignOut(): Promise<void> {
   gap: 32px;
   height: 60px;
   padding: 0 24px;
-  background-color: #1f2937;
-  color: #e5e7eb;
+  background-color: var(--app-platform-bg);
+  color: var(--app-platform-text);
   box-shadow: 0 1px 4px rgba(17, 24, 39, 0.2);
 }
 
@@ -83,8 +83,8 @@ async function handleSignOut(): Promise<void> {
   width: 28px;
   height: 28px;
   border-radius: 8px;
-  background-color: #f59e0b;
-  color: #1f2937;
+  background-color: var(--app-platform-accent);
+  color: var(--app-platform-bg);
   font-size: 15px;
   font-weight: 700;
 }
@@ -92,14 +92,14 @@ async function handleSignOut(): Promise<void> {
 .platform__brand-text {
   font-size: 15px;
   font-weight: 600;
-  color: #f9fafb;
+  color: var(--app-platform-text-strong);
 }
 
 .platform__badge {
   padding: 2px 8px;
-  border: 1px solid #f59e0b;
+  border: 1px solid var(--app-platform-accent);
   border-radius: 999px;
-  color: #f59e0b;
+  color: var(--app-platform-accent);
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 1px;
@@ -117,19 +117,19 @@ async function handleSignOut(): Promise<void> {
   align-items: center;
   height: 100%;
   padding: 0 16px;
-  color: #d1d5db;
+  color: var(--app-platform-text-muted);
   font-size: 14px;
   text-decoration: none;
   border-bottom: 2px solid transparent;
 }
 
 .platform__nav-item:hover {
-  color: #f9fafb;
+  color: var(--app-platform-text-strong);
 }
 
 .platform__nav-item.is-active {
-  color: #f59e0b;
-  border-bottom-color: #f59e0b;
+  color: var(--app-platform-accent);
+  border-bottom-color: var(--app-platform-accent);
   font-weight: 600;
 }
 
@@ -142,15 +142,15 @@ async function handleSignOut(): Promise<void> {
 
 .platform__account {
   font-size: 13px;
-  color: #d1d5db;
+  color: var(--app-platform-text-muted);
 }
 
 .platform__signout {
-  color: #d1d5db;
+  color: var(--app-platform-text-muted);
 }
 
 .platform__signout:hover {
-  color: #f9fafb;
+  color: var(--app-platform-text-strong);
 }
 
 .platform__main {

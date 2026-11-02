@@ -6,6 +6,7 @@ import type { FormInstance, FormRules } from 'element-plus'
 import { createTeacher, listTeachers } from '@/api/archive'
 import { createStaff, listStaff, updateStaff } from '@/api/staff'
 import { ApiError } from '@/api/http'
+import PageHeader from '@/components/PageHeader.vue'
 import { usePagedList } from '@/composables/usePagedList'
 import { ROLE_LABELS, STAFF_ROLES } from '@/types/auth'
 import type { TenantRole } from '@/types/auth'
@@ -279,11 +280,9 @@ onMounted(() => {
 <template>
   <div class="page">
     <el-card shadow="never" class="page__card">
-      <div class="page__head">
-        <div class="page__actions">
-          <el-button type="primary" @click="openCreate">新建账号</el-button>
-        </div>
-      </div>
+      <PageHeader title="员工账号" subtitle="管理员工登录账号与角色权限">
+        <el-button type="primary" @click="openCreate">新建账号</el-button>
+      </PageHeader>
 
       <el-alert
         v-if="errorText"
@@ -460,19 +459,7 @@ onMounted(() => {
 }
 
 .page__card {
-  border-radius: 10px;
-}
-
-.page__head {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  margin-bottom: 16px;
-}
-
-.page__actions {
-  display: flex;
-  gap: 8px;
+  border-radius: var(--app-radius-card);
 }
 
 .page__error {
@@ -503,7 +490,7 @@ onMounted(() => {
 
 .reset-hint {
   margin: 0 0 12px;
-  color: #606266;
+  color: var(--el-text-color-regular);
   font-size: 13px;
 }
 </style>

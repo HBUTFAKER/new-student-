@@ -5,6 +5,7 @@ import type { FormInstance, FormRules } from 'element-plus'
 
 import { createCourse, deleteCourse, listCourses, updateCourse } from '@/api/course'
 import { ApiError } from '@/api/http'
+import PageHeader from '@/components/PageHeader.vue'
 import { usePagedList } from '@/composables/usePagedList'
 import { COURSE_STATUS_LABELS } from '@/types/course'
 import type { Course, CoursePayload, CourseStatus } from '@/types/course'
@@ -206,24 +207,25 @@ onMounted(() => {
 <template>
   <div class="page">
     <el-card shadow="never" class="page__card">
-      <div class="page__head">
-        <div class="page__filters">
-          <el-input
-            v-model="filters.keyword"
-            placeholder="课程名称"
-            clearable
-            style="width: 200px"
-            @keyup.enter="handleSearch"
-            @clear="handleSearch"
-          />
-          <el-select v-model="filters.status" placeholder="状态" clearable style="width: 120px">
-            <el-option label="启用" value="active" />
-            <el-option label="停用" value="inactive" />
-          </el-select>
-          <el-button type="primary" plain @click="handleSearch">查询</el-button>
-          <el-button @click="handleReset">重置</el-button>
-        </div>
+      <PageHeader title="课程维护" subtitle="维护课程类型、科目与单次时长">
         <el-button type="primary" @click="openCreate">新建课程</el-button>
+      </PageHeader>
+
+      <div class="page__filters">
+        <el-input
+          v-model="filters.keyword"
+          placeholder="课程名称"
+          clearable
+          style="width: 200px"
+          @keyup.enter="handleSearch"
+          @clear="handleSearch"
+        />
+        <el-select v-model="filters.status" placeholder="状态" clearable style="width: 120px">
+          <el-option label="启用" value="active" />
+          <el-option label="停用" value="inactive" />
+        </el-select>
+        <el-button type="primary" plain @click="handleSearch">查询</el-button>
+        <el-button @click="handleReset">重置</el-button>
       </div>
 
       <el-alert
@@ -340,19 +342,14 @@ onMounted(() => {
 }
 
 .page__card {
-  border-radius: 10px;
-}
-
-.page__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 16px;
+  border-radius: var(--app-radius-card);
 }
 
 .page__filters {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
+  margin-bottom: 16px;
 }
 
 .page__error {

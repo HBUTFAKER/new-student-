@@ -8,6 +8,7 @@ import { ApiError } from '@/api/http'
 import { getMySubscription } from '@/api/subscription'
 import ImportDialog from '@/components/ImportDialog.vue'
 import InviteCodeDialog from '@/components/InviteCodeDialog.vue'
+import PageHeader from '@/components/PageHeader.vue'
 import { usePagedList } from '@/composables/usePagedList'
 import {
   GRADE_OPTIONS,
@@ -284,13 +285,11 @@ onMounted(() => {
 <template>
   <div class="page">
     <el-card shadow="never" class="page__card">
-      <div class="page__head">
-        <div class="page__actions">
-          <el-button plain :loading="exporting" @click="handleExport">导出 CSV</el-button>
-          <el-button plain @click="importVisible = true">批量导入</el-button>
-          <el-button type="primary" @click="openCreate">新建学生</el-button>
-        </div>
-      </div>
+      <PageHeader title="学生档案" subtitle="管理在读学生、批量导入与家长邀请码">
+        <el-button plain :loading="exporting" @click="handleExport">导出 CSV</el-button>
+        <el-button plain @click="importVisible = true">批量导入</el-button>
+        <el-button type="primary" @click="openCreate">新建学生</el-button>
+      </PageHeader>
 
       <el-form :inline="true" class="page__filters" @submit.prevent="handleSearch">
         <el-form-item label="姓名">
@@ -447,19 +446,7 @@ onMounted(() => {
 }
 
 .page__card {
-  border-radius: 10px;
-}
-
-.page__head {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  margin-bottom: 16px;
-}
-
-.page__actions {
-  display: flex;
-  gap: 8px;
+  border-radius: var(--app-radius-card);
 }
 
 .page__filters {

@@ -15,6 +15,7 @@ import {
   updateClass,
 } from '@/api/course'
 import { ApiError } from '@/api/http'
+import PageHeader from '@/components/PageHeader.vue'
 import { usePagedList } from '@/composables/usePagedList'
 import type { Classroom, Teacher } from '@/types/archive'
 import { CLASS_STATUS_LABELS } from '@/types/course'
@@ -362,12 +363,10 @@ onMounted(async () => {
 <template>
   <div class="page">
     <el-card shadow="never" class="page__card">
-      <div class="page__head">
-        <div class="page__actions">
-          <el-button plain :loading="exporting" @click="handleExport">导出 CSV</el-button>
-          <el-button type="primary" @click="openCreate">新建班级</el-button>
-        </div>
-      </div>
+      <PageHeader title="班级管理" subtitle="维护班级、学期与学员名单">
+        <el-button plain :loading="exporting" @click="handleExport">导出 CSV</el-button>
+        <el-button type="primary" @click="openCreate">新建班级</el-button>
+      </PageHeader>
 
       <el-form :inline="true" class="page__filters" @submit.prevent="handleSearch">
         <el-form-item label="课程">
@@ -573,19 +572,7 @@ onMounted(async () => {
 }
 
 .page__card {
-  border-radius: 10px;
-}
-
-.page__head {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  margin-bottom: 16px;
-}
-
-.page__actions {
-  display: flex;
-  gap: 8px;
+  border-radius: var(--app-radius-card);
 }
 
 .page__filters {
@@ -614,14 +601,14 @@ onMounted(async () => {
 }
 
 .form__term-sep {
-  color: #909399;
+  color: var(--el-text-color-secondary);
   font-size: 13px;
 }
 
 .form__error {
   margin-top: 4px;
   font-size: 12px;
-  color: #f56c6c;
+  color: var(--el-color-danger);
 }
 
 .roster {
@@ -638,6 +625,6 @@ onMounted(async () => {
 
 .roster__count {
   font-size: 13px;
-  color: #606266;
+  color: var(--el-text-color-regular);
 }
 </style>

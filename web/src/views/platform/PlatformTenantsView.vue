@@ -445,34 +445,34 @@ onMounted(() => {
 
 .stats__card {
   padding: 20px 24px;
-  background-color: #ffffff;
+  background-color: var(--el-bg-color);
   border-radius: 12px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--app-platform-card-border);
 }
 
 .stats__label {
   font-size: 13px;
-  color: #6b7280;
+  color: var(--app-platform-label);
 }
 
 .stats__value {
   margin-top: 8px;
   font-size: 30px;
   font-weight: 700;
-  color: #111827;
+  color: var(--app-platform-heading);
 }
 
 .stats__value--primary {
-  color: #2563eb;
+  color: var(--app-platform-primary);
 }
 
 .stats__value--danger {
-  color: #dc2626;
+  color: var(--app-platform-danger);
 }
 
 .panel {
   border-radius: 12px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--app-platform-card-border);
 }
 
 .panel__head {
@@ -516,7 +516,7 @@ onMounted(() => {
 
 .detail__section {
   padding: 16px 0;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--app-platform-divider);
 }
 
 .detail__section:last-of-type {
@@ -526,7 +526,7 @@ onMounted(() => {
 .detail__section-title {
   font-size: 13px;
   font-weight: 600;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   margin-bottom: 12px;
 }
 
@@ -540,11 +540,11 @@ onMounted(() => {
 
 .detail__label {
   width: 48px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 .detail__value {
-  color: #303133;
+  color: var(--el-text-color-primary);
 }
 
 .detail__usage {
@@ -553,7 +553,7 @@ onMounted(() => {
 
 .detail__usage-label {
   font-size: 13px;
-  color: #606266;
+  color: var(--el-text-color-regular);
   margin-bottom: 6px;
 }
 
@@ -563,7 +563,7 @@ onMounted(() => {
 
 .renew-hint {
   margin: 0 0 16px;
-  color: #606266;
+  color: var(--el-text-color-regular);
   font-size: 13px;
 }
 

@@ -178,7 +178,7 @@ onMounted(() => {
       <el-empty v-if="isEmpty" description="该时间范围内没有已开始的课次" />
 
       <template v-else>
-        <div class="page__meta">共 {{ summary?.total ?? 0 }} 个班级</div>
+        <div class="page__meta">共 <strong class="page__meta-num">{{ summary?.total ?? 0 }}</strong> 个班级</div>
 
         <el-table v-loading="loading" :data="rows" border stripe row-key="class_id">
           <el-table-column prop="class_name" label="班级" min-width="160" />
@@ -232,7 +232,7 @@ onMounted(() => {
 }
 
 .page__card {
-  border-radius: 10px;
+  border-radius: var(--app-radius-card);
 }
 
 .page__note,
@@ -241,16 +241,23 @@ onMounted(() => {
 }
 
 .page__meta {
-  color: #909399;
+  color: var(--el-text-color-secondary);
   font-size: 13px;
   margin-bottom: 8px;
+}
+
+.page__meta-num {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--el-color-primary);
+  font-variant-numeric: tabular-nums;
 }
 
 .page__subtitle {
   margin: 20px 0 8px;
   font-size: 14px;
   font-weight: 600;
-  color: #303133;
+  color: var(--el-text-color-primary);
 }
 
 .page__subtable {
@@ -263,6 +270,6 @@ onMounted(() => {
 
 /* 「—」是没数据，不是 0%，视觉上也要轻一点 */
 .rate--empty {
-  color: #c0c4cc;
+  color: var(--el-text-color-disabled);
 }
 </style>

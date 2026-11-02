@@ -222,26 +222,26 @@ async function startImport(): Promise<void> {
 
 .import__hint {
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 .import__file {
   font-size: 13px;
-  color: #606266;
+  color: var(--el-text-color-regular);
 }
 
 .import__count {
   margin-left: 8px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 .import__summary {
   margin-bottom: 8px;
   font-size: 13px;
-  color: #606266;
+  color: var(--el-text-color-regular);
 }
 
 .import__failed {
-  color: #f56c6c;
+  color: var(--el-color-danger);
 }
 </style>

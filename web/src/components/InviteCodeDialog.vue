@@ -175,26 +175,26 @@ async function copyCode(code: string): Promise<void> {
 }
 
 .invite__hint {
-  color: #8a9099;
+  color: var(--el-text-color-secondary);
   font-size: 12px;
 }
 
 .invite__latest {
   margin-bottom: 16px;
   padding: 16px;
-  border: 1px dashed #2f6fed;
+  border: 1px dashed var(--el-color-primary);
   border-radius: 8px;
-  background: #f5f8ff;
+  background: var(--app-primary-softer);
 }
 
 .invite__latest-label {
-  color: #8a9099;
+  color: var(--el-text-color-secondary);
   font-size: 12px;
 }
 
 .invite__code {
   margin: 8px 0;
-  color: #1f2329;
+  color: var(--el-text-color-primary);
   font-size: 30px;
   font-weight: 600;
   font-family: 'SF Mono', Consolas, monospace;
@@ -212,6 +212,6 @@ async function copyCode(code: string): Promise<void> {
 }
 
 .invite__dim {
-  color: #a8adb5;
+  color: var(--el-text-color-placeholder);
 }
 </style>

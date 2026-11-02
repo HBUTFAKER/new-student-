@@ -211,8 +211,8 @@ async function submitDeactivate(): Promise<void> {
 .layout__aside {
   display: flex;
   flex-direction: column;
-  background-color: #ffffff;
-  border-right: 1px solid #e4e7ed;
+  background-color: var(--el-bg-color);
+  border-right: 1px solid var(--el-border-color-light);
 }
 
 .layout__brand {
@@ -221,7 +221,7 @@ async function submitDeactivate(): Promise<void> {
   gap: 10px;
   height: 60px;
   padding: 0 20px;
-  border-bottom: 1px solid #e4e7ed;
+  border-bottom: 1px solid var(--el-border-color-light);
 }
 
 .layout__brand-mark {
@@ -231,8 +231,8 @@ async function submitDeactivate(): Promise<void> {
   width: 28px;
   height: 28px;
   border-radius: 8px;
-  background-color: #409eff;
-  color: #ffffff;
+  background-color: var(--el-color-primary);
+  color: var(--el-bg-color);
   font-size: 15px;
   font-weight: 600;
 }
@@ -252,8 +252,8 @@ async function submitDeactivate(): Promise<void> {
   align-items: center;
   justify-content: space-between;
   height: 60px;
-  background-color: #ffffff;
-  border-bottom: 1px solid #e4e7ed;
+  background-color: var(--el-bg-color);
+  border-bottom: 1px solid var(--el-border-color-light);
 }
 
 .layout__title {
@@ -269,7 +269,7 @@ async function submitDeactivate(): Promise<void> {
 
 .layout__account {
   font-size: 13px;
-  color: #606266;
+  color: var(--el-text-color-regular);
 }
 
 .layout__account--btn {
@@ -277,12 +277,12 @@ async function submitDeactivate(): Promise<void> {
   align-items: center;
   gap: 4px;
   cursor: pointer;
-  color: #303133;
+  color: var(--el-text-color-primary);
   outline: none;
 }
 
 .layout__account--btn:hover {
-  color: #409eff;
+  color: var(--el-color-primary);
 }
 
 .layout__deactivate-alert {
@@ -295,7 +295,7 @@ async function submitDeactivate(): Promise<void> {
 
 .layout__main {
   padding: 20px;
-  background-color: #f5f7fa;
+  background-color: var(--el-fill-color-light);
 }
 
 .layout__banner {

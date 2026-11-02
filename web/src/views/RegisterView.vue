@@ -170,10 +170,7 @@ async function handleSubmit(): Promise<void> {
   justify-content: center;
   min-height: 100%;
   padding: 24px;
-  background:
-    radial-gradient(1200px 600px at 15% -10%, #dbe9ff 0%, rgba(219, 233, 255, 0) 60%),
-    radial-gradient(900px 500px at 110% 110%, #e4ecff 0%, rgba(228, 236, 255, 0) 55%),
-    linear-gradient(135deg, #eef4ff 0%, #f7f9fc 55%, #eaf1fb 100%);
+  background: var(--app-auth-register-gradient);
 }
 
 .register__card {
@@ -181,7 +178,7 @@ async function handleSubmit(): Promise<void> {
   width: 100%;
   max-width: 440px;
   padding: 40px 36px 28px;
-  background-color: #ffffff;
+  background-color: var(--el-bg-color);
   border-radius: 16px;
   box-shadow: 0 22px 56px rgba(31, 45, 61, 0.12);
   overflow: hidden;
@@ -194,7 +191,7 @@ async function handleSubmit(): Promise<void> {
   left: 0;
   right: 0;
   height: 4px;
-  background: linear-gradient(90deg, #409eff 0%, #79bbff 55%, #a0cfff 100%);
+  background: linear-gradient(90deg, var(--el-color-primary) 0%, var(--el-color-primary-light-3) 55%, var(--el-color-primary-light-5) 100%);
 }
 
 .register__head {
@@ -210,8 +207,8 @@ async function handleSubmit(): Promise<void> {
   height: 46px;
   margin-bottom: 14px;
   border-radius: 13px;
-  background: linear-gradient(135deg, #409eff 0%, #66b1ff 100%);
-  color: #ffffff;
+  background: linear-gradient(135deg, var(--el-color-primary) 0%, var(--el-color-primary-light-3) 100%);
+  color: var(--el-bg-color);
   font-size: 21px;
   font-weight: 600;
   box-shadow: 0 6px 16px rgba(64, 158, 255, 0.3);
@@ -226,7 +223,7 @@ async function handleSubmit(): Promise<void> {
 .register__subtitle {
   margin: 8px 0 0;
   font-size: 13px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 .register__badge {
@@ -235,13 +232,13 @@ async function handleSubmit(): Promise<void> {
   gap: 16px;
   margin-bottom: 20px;
   padding: 10px 12px;
-  border-radius: 10px;
-  background-color: #f5f9ff;
+  border-radius: var(--app-radius-card);
+  background-color: var(--app-primary-softer);
 }
 
 .register__badge-item {
   font-size: 12px;
-  color: #4a79b8;
+  color: var(--app-primary-text-soft);
 }
 
 .register__error {
@@ -257,11 +254,11 @@ async function handleSubmit(): Promise<void> {
   margin-top: 18px;
   text-align: center;
   font-size: 13px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 .register__link {
-  color: #409eff;
+  color: var(--el-color-primary);
   font-weight: 500;
 }
 

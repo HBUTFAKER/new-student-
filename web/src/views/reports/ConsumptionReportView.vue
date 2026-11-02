@@ -110,7 +110,7 @@ onMounted(() => {
       <el-empty v-if="isEmpty" description="该时间范围内没有课时消耗流水" />
 
       <template v-else>
-        <div class="page__meta">共 {{ report?.total ?? 0 }} 名学生 · 展开行可看班级分布</div>
+        <div class="page__meta">共 <strong class="page__meta-num">{{ report?.total ?? 0 }}</strong> 名学生 · 展开行可看班级分布</div>
 
         <el-table v-loading="loading" :data="rows" border stripe row-key="student_id">
           <el-table-column type="expand">
@@ -152,7 +152,7 @@ onMounted(() => {
 }
 
 .page__card {
-  border-radius: 10px;
+  border-radius: var(--app-radius-card);
 }
 
 .page__error {
@@ -160,9 +160,16 @@ onMounted(() => {
 }
 
 .page__meta {
-  color: #909399;
+  color: var(--el-text-color-secondary);
   font-size: 13px;
   margin-bottom: 8px;
+}
+
+.page__meta-num {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--el-color-primary);
+  font-variant-numeric: tabular-nums;
 }
 
 .expand {
@@ -173,11 +180,11 @@ onMounted(() => {
   margin-bottom: 8px;
   font-size: 13px;
   font-weight: 600;
-  color: #606266;
+  color: var(--el-text-color-regular);
 }
 
 .expand__empty {
-  color: #909399;
+  color: var(--el-text-color-secondary);
   font-size: 13px;
 }
 </style>

@@ -74,6 +74,6 @@ function range(row: ConflictRow): string {
 .conflict__id {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 </style>

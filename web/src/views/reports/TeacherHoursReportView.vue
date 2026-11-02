@@ -99,7 +99,8 @@ onMounted(() => {
 
       <template v-else>
         <div class="page__meta">
-          共 {{ report?.total ?? 0 }} 位老师 · 总时长 {{ formatMinutes(totalMinutes) }}
+          共 <strong class="page__meta-num">{{ report?.total ?? 0 }}</strong> 位老师 · 总时长
+          <strong class="page__meta-num">{{ formatMinutes(totalMinutes) }}</strong>
         </div>
 
         <el-table v-loading="loading" :data="rows" border stripe row-key="teacher_id">
@@ -125,7 +126,7 @@ onMounted(() => {
 }
 
 .page__card {
-  border-radius: 10px;
+  border-radius: var(--app-radius-card);
 }
 
 .page__error {
@@ -133,9 +134,16 @@ onMounted(() => {
 }
 
 .page__meta {
-  color: #909399;
+  color: var(--el-text-color-secondary);
   font-size: 13px;
   margin-bottom: 8px;
+}
+
+.page__meta-num {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--el-color-primary);
+  font-variant-numeric: tabular-nums;
 }
 
 .duration {

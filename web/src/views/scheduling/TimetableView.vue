@@ -783,7 +783,7 @@ onMounted(() => {
 
 <style scoped>
 .timetable__card {
-  border-radius: 10px;
+  border-radius: var(--app-radius-card);
 }
 
 .timetable__toolbar {
@@ -805,14 +805,14 @@ onMounted(() => {
 .timetable__range {
   font-size: 14px;
   font-weight: 600;
-  color: #303133;
+  color: var(--el-text-color-primary);
 }
 
 /* ---------------- 周视图 */
 
 .timetable__week {
   position: relative;
-  border: 1px solid #ebeef5;
+  border: 1px solid var(--el-border-color-lighter);
   border-radius: 8px;
   overflow: hidden;
 }
@@ -820,8 +820,8 @@ onMounted(() => {
 .timetable__header {
   display: grid;
   grid-template-columns: 64px repeat(7, minmax(0, 1fr));
-  background-color: #fafafa;
-  border-bottom: 1px solid #ebeef5;
+  background-color: var(--el-fill-color-lighter);
+  border-bottom: 1px solid var(--el-border-color-lighter);
 }
 
 .timetable__gutter-head,
@@ -829,16 +829,16 @@ onMounted(() => {
   padding: 8px 6px;
   text-align: center;
   font-size: 13px;
-  color: #606266;
+  color: var(--el-text-color-regular);
 }
 
 .timetable__day-head {
-  border-left: 1px solid #ebeef5;
+  border-left: 1px solid var(--el-border-color-lighter);
 }
 
 .timetable__day-head.is-today {
-  background-color: #ecf5ff;
-  color: #409eff;
+  background-color: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
   font-weight: 600;
 }
 
@@ -848,7 +848,7 @@ onMounted(() => {
 
 .timetable__day-date {
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 .timetable__body {
@@ -860,7 +860,7 @@ onMounted(() => {
 
 .timetable__gutter {
   position: relative;
-  background-color: #fafafa;
+  background-color: var(--el-fill-color-lighter);
 }
 
 .timetable__hour {
@@ -868,7 +868,7 @@ onMounted(() => {
   right: 6px;
   transform: translateY(-50%);
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 .timetable__hour:first-child {
@@ -877,23 +877,23 @@ onMounted(() => {
 
 .timetable__day {
   position: relative;
-  border-left: 1px solid #ebeef5;
+  border-left: 1px solid var(--el-border-color-lighter);
   background-image: repeating-linear-gradient(
     to bottom,
-    #f0f2f5 0,
-    #f0f2f5 1px,
+    var(--el-fill-color) 0,
+    var(--el-fill-color) 1px,
     transparent 1px,
     transparent 60px
   );
 }
 
 .timetable__day.is-today {
-  background-color: #f7fbff;
+  background-color: var(--app-primary-softer);
 }
 
 .timetable__day.is-over {
-  background-color: #ecf5ff;
-  outline: 2px dashed #409eff;
+  background-color: var(--el-color-primary-light-9);
+  outline: 2px dashed var(--el-color-primary);
   outline-offset: -2px;
 }
 
@@ -904,9 +904,9 @@ onMounted(() => {
   box-sizing: border-box;
   padding: 4px 6px;
   border-radius: 6px;
-  border-left: 3px solid #409eff;
-  background-color: #e8f3ff;
-  color: #1f2d3d;
+  border-left: 3px solid var(--el-color-primary);
+  background-color: var(--app-primary-soft);
+  color: var(--el-text-color-primary);
   font-size: 12px;
   line-height: 1.35;
   overflow: hidden;
@@ -928,14 +928,14 @@ onMounted(() => {
 }
 
 .timetable__block.is-moved {
-  border-left-color: #e6a23c;
-  background-color: #fdf6ec;
+  border-left-color: var(--el-color-warning);
+  background-color: var(--el-color-warning-light-9);
 }
 
 .timetable__block.is-cancelled {
-  border-left-color: #c0c4cc;
-  background-color: #f4f4f5;
-  color: #909399;
+  border-left-color: var(--el-text-color-disabled);
+  background-color: var(--el-color-info-light-9);
+  color: var(--el-text-color-secondary);
   text-decoration: line-through;
 }
 
@@ -953,7 +953,7 @@ onMounted(() => {
   align-items: center;
   gap: 4px;
   font-size: 11px;
-  color: #606266;
+  color: var(--el-text-color-regular);
 }
 
 .timetable__block-title {
@@ -967,7 +967,7 @@ onMounted(() => {
 .timetable__block-meta {
   margin-top: 1px;
   font-size: 11px;
-  color: #606266;
+  color: var(--el-text-color-regular);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -981,10 +981,10 @@ onMounted(() => {
   position: absolute;
   left: 4px;
   right: 4px;
-  border: 1px dashed #409eff;
+  border: 1px dashed var(--el-color-primary);
   border-radius: 6px;
   background-color: rgb(64 158 255 / 12%);
-  color: #409eff;
+  color: var(--el-color-primary);
   font-size: 11px;
   padding: 2px 6px;
   pointer-events: none;
@@ -995,14 +995,14 @@ onMounted(() => {
   padding: 12px;
   text-align: center;
   font-size: 13px;
-  color: #909399;
-  border-top: 1px solid #ebeef5;
+  color: var(--el-text-color-secondary);
+  border-top: 1px solid var(--el-border-color-lighter);
 }
 
 /* ---------------- 月视图 */
 
 .timetable__month {
-  border: 1px solid #ebeef5;
+  border: 1px solid var(--el-border-color-lighter);
   border-radius: 8px;
   overflow: hidden;
 }
@@ -1014,8 +1014,8 @@ onMounted(() => {
 }
 
 .timetable__month-head {
-  background-color: #fafafa;
-  border-bottom: 1px solid #ebeef5;
+  background-color: var(--el-fill-color-lighter);
+  border-bottom: 1px solid var(--el-border-color-lighter);
 }
 
 .timetable__month-cell {
@@ -1025,23 +1025,23 @@ onMounted(() => {
   min-height: 88px;
   padding: 8px;
   border: none;
-  border-left: 1px solid #ebeef5;
-  border-bottom: 1px solid #ebeef5;
-  background-color: #ffffff;
+  border-left: 1px solid var(--el-border-color-lighter);
+  border-bottom: 1px solid var(--el-border-color-lighter);
+  background-color: var(--el-bg-color);
   text-align: left;
   font: inherit;
   cursor: pointer;
 }
 
 .timetable__month-cell:hover {
-  background-color: #f5f9ff;
+  background-color: var(--app-primary-softer);
 }
 
 .timetable__month-cell.is-head {
   min-height: auto;
   align-items: center;
   font-size: 13px;
-  color: #606266;
+  color: var(--el-text-color-regular);
   cursor: default;
 }
 
@@ -1050,12 +1050,12 @@ onMounted(() => {
 }
 
 .timetable__month-cell.is-outside {
-  background-color: #fafafa;
-  color: #c0c4cc;
+  background-color: var(--el-fill-color-lighter);
+  color: var(--el-text-color-disabled);
 }
 
 .timetable__month-cell.is-today {
-  box-shadow: inset 0 0 0 2px #409eff;
+  box-shadow: inset 0 0 0 2px var(--el-color-primary);
 }
 
 .timetable__month-date {
@@ -1065,11 +1065,11 @@ onMounted(() => {
 
 .timetable__month-count {
   font-size: 12px;
-  color: #409eff;
+  color: var(--el-color-primary);
 }
 
 .timetable__month-count.is-empty {
-  color: #dcdfe6;
+  color: var(--el-border-color);
 }
 
 /* ---------------- 图例 */
@@ -1080,7 +1080,7 @@ onMounted(() => {
   gap: 8px;
   margin-top: 12px;
   font-size: 12px;
-  color: #606266;
+  color: var(--el-text-color-regular);
 }
 
 .timetable__dot {
@@ -1091,20 +1091,20 @@ onMounted(() => {
 }
 
 .timetable__dot.is-normal {
-  background-color: #409eff;
+  background-color: var(--el-color-primary);
 }
 
 .timetable__dot.is-moved {
-  background-color: #e6a23c;
+  background-color: var(--el-color-warning);
 }
 
 .timetable__dot.is-cancelled {
-  background-color: #c0c4cc;
+  background-color: var(--el-text-color-disabled);
 }
 
 .timetable__legend-tip {
   margin-left: 8px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 @keyframes tt-pulse {

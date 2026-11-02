@@ -5,6 +5,7 @@ import type { FormInstance, FormRules } from 'element-plus'
 
 import { createClassroom, listClassrooms, updateClassroom } from '@/api/archive'
 import { ApiError } from '@/api/http'
+import PageHeader from '@/components/PageHeader.vue'
 import { usePagedList } from '@/composables/usePagedList'
 import type { Classroom } from '@/types/archive'
 import { exportCsv } from '@/utils/csv'
@@ -155,12 +156,10 @@ onMounted(() => {
 <template>
   <div class="page">
     <el-card shadow="never" class="page__card">
-      <div class="page__head">
-        <div class="page__actions">
-          <el-button plain :loading="exporting" @click="handleExport">导出 CSV</el-button>
-          <el-button type="primary" @click="openCreate">新建教室</el-button>
-        </div>
-      </div>
+      <PageHeader title="教室档案" subtitle="管理教室名称与容量">
+        <el-button plain :loading="exporting" @click="handleExport">导出 CSV</el-button>
+        <el-button type="primary" @click="openCreate">新建教室</el-button>
+      </PageHeader>
 
       <el-alert
         v-if="errorText"
@@ -227,19 +226,7 @@ onMounted(() => {
 }
 
 .page__card {
-  border-radius: 10px;
-}
-
-.page__head {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  margin-bottom: 16px;
-}
-
-.page__actions {
-  display: flex;
-  gap: 8px;
+  border-radius: var(--app-radius-card);
 }
 
 .page__error {

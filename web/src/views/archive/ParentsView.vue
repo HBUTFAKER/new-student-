@@ -14,6 +14,7 @@ import {
 } from '@/api/archive'
 import { ApiError } from '@/api/http'
 import ImportDialog from '@/components/ImportDialog.vue'
+import PageHeader from '@/components/PageHeader.vue'
 import { usePagedList } from '@/composables/usePagedList'
 import type { Binding, Parent, Student } from '@/types/archive'
 import { exportCsv } from '@/utils/csv'
@@ -285,13 +286,11 @@ onMounted(async () => {
 <template>
   <div class="page">
     <el-card shadow="never" class="page__card">
-      <div class="page__head">
-        <div class="page__actions">
-          <el-button plain :loading="exporting" @click="handleExport">导出 CSV</el-button>
-          <el-button plain @click="importVisible = true">批量导入</el-button>
-          <el-button type="primary" @click="openCreate">新建家长</el-button>
-        </div>
-      </div>
+      <PageHeader title="家长档案" subtitle="管理家长账号与孩子的绑定关系">
+        <el-button plain :loading="exporting" @click="handleExport">导出 CSV</el-button>
+        <el-button plain @click="importVisible = true">批量导入</el-button>
+        <el-button type="primary" @click="openCreate">新建家长</el-button>
+      </PageHeader>
 
       <el-form :inline="true" class="page__filters" @submit.prevent="handleSearch">
         <el-form-item label="手机号">
@@ -429,19 +428,7 @@ onMounted(async () => {
 }
 
 .page__card {
-  border-radius: 10px;
-}
-
-.page__head {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  margin-bottom: 16px;
-}
-
-.page__actions {
-  display: flex;
-  gap: 8px;
+  border-radius: var(--app-radius-card);
 }
 
 .page__filters {
@@ -463,11 +450,11 @@ onMounted(async () => {
 }
 
 .page__relation {
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 .page__muted {
-  color: #c0c4cc;
+  color: var(--el-text-color-disabled);
   font-size: 13px;
 }
 </style>

@@ -238,7 +238,7 @@ const crossesMidnight = computed(
 }
 
 .lesson-form__sep {
-  color: #909399;
+  color: var(--el-text-color-secondary);
   font-size: 13px;
 }
 
@@ -247,6 +247,6 @@ const crossesMidnight = computed(
   margin-top: 2px;
   font-size: 12px;
   line-height: 1.6;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 </style>

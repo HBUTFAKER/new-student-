@@ -18,12 +18,38 @@ body {
   font-family:
     -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue',
     Arial, sans-serif;
-  color: #303133;
-  background-color: #f5f7fa;
+  color: var(--el-text-color-primary);
+  background-color: var(--el-bg-color-page);
   -webkit-font-smoothing: antialiased;
 }
 
 a {
   color: inherit;
   text-decoration: none;
+}
+
+/* ---------------- 统一页面骨架（7.7）：卡片 / 表格 / 分页 ---------------- */
+
+/* 白卡片：浅灰底 + 12px 圆角 + 轻阴影，全站列表页/报表页统一 */
+.el-card.is-page-card,
+.el-card {
+  border-radius: var(--app-radius-card);
+  border: 1px solid var(--el-border-color-lighter);
+}
+
+/* 表格：表头浅灰底 + 斑马纹（定死，不做 hover 高亮） */
+.el-table {
+  --el-table-header-bg-color: var(--el-fill-color);
+  --el-table-header-text-color: var(--el-text-color-regular);
+  --el-table-stripe: var(--el-fill-color-light);
+  font-size: 13px;
+}
+
+.el-table th.el-table__cell {
+  font-weight: 600;
+}
+
+/* 分页统一靠右下 */
+.el-pagination.is-background .el-pager li.is-active {
+  background-color: var(--el-color-primary);
 }

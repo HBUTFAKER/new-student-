@@ -1,0 +1,95 @@
+/**
+ * 设计令牌层（7.7 视觉统一的地基）
+ *
+ * 全局唯一的颜色 / 圆角 / 阴影 / 间距来源。视图内一律引用这里的变量，
+ * 不许再裸写十六进制色值（Element Plus 组件自身默认色除外）。
+ *
+ * 颜色来源：
+ *  - 通用色直接沿用 Element Plus 的 `--el-*` 变量（主色蓝系保持默认 #409eff，不激进换色）；
+ *  - 语义色对齐后端状态：到期红（danger）/ 限额·临期黄（warning）/ 只读·失效灰（info）；
+ *  - 圆角 / 阴影 / 间距 / 平台后台深色顶栏，用 `--app-*` 前缀的语义令牌。
+ */
+
+:root {
+  /* ---------------- 主色阶（蓝系微调，light 系列与 Element Plus 保持一致） ---------------- */
+  --el-color-primary: #409eff;
+  --el-color-primary-light-3: #79bbff;
+  --el-color-primary-light-5: #a0cfff;
+  --el-color-primary-light-7: #c6e2ff;
+  --el-color-primary-light-8: #d9ecff;
+  --el-color-primary-light-9: #ecf5ff;
+  --el-color-primary-dark-2: #337ecc;
+
+  /* 主色的柔和背景（课表块 / 今日列等自绘元素的底色） */
+  --app-primary-soft: #e8f3ff;
+  --app-primary-softer: #f5f9ff;
+  --app-primary-text-soft: #4a79b8;
+
+  /* ---------------- 认证页门面背景（登录 / 注册共用） ---------------- */
+  --app-auth-gradient: linear-gradient(135deg, #eef4ff 0%, #f7f9fc 55%, #eaf1fb 100%);
+  --app-auth-register-gradient:
+    radial-gradient(1200px 600px at 15% -10%, #dbe9ff 0%, rgba(219, 233, 255, 0) 60%),
+    radial-gradient(900px 500px at 110% 110%, #e4ecff 0%, rgba(228, 236, 255, 0) 55%),
+    linear-gradient(135deg, #eef4ff 0%, #f7f9fc 55%, #eaf1fb 100%);
+
+  /* ---------------- 语义色（到期红 / 限额黄 / 只读灰） ---------------- */
+  --el-color-success: #67c23a;
+  --el-color-warning: #e6a23c;
+  --el-color-danger: #f56c6c;
+  --el-color-error: #f56c6c;
+  --el-color-info: #909399;
+  --el-color-warning-light-9: #fdf6ec;
+  --el-color-info-light-9: #f4f4f5;
+
+  /* ---------------- 中性灰阶 / 文字 ---------------- */
+  --el-text-color-primary: #303133;
+  --el-text-color-regular: #606266;
+  --el-text-color-secondary: #909399;
+  --el-text-color-placeholder: #a8abb2;
+  --el-text-color-disabled: #c0c4cc;
+
+  /* ---------------- 边框 / 填充 / 背景 ---------------- */
+  --el-border-color: #dcdfe6;
+  --el-border-color-light: #e4e7ed;
+  --el-border-color-lighter: #ebeef5;
+  --el-border-color-extra-light: #f2f6fc;
+  --el-fill-color: #f0f2f5;
+  --el-fill-color-light: #f5f7fa;
+  --el-fill-color-lighter: #fafafa;
+  --el-bg-color: #ffffff;
+  --el-bg-color-page: #f5f7fa;
+
+  /* ---------------- 圆角（统一 8px，卡片 12px） ---------------- */
+  --app-radius-sm: 6px;
+  --app-radius-base: 8px;
+  --app-radius-card: 12px;
+  --app-radius-lg: 16px;
+
+  /* ---------------- 阴影两档（卡片 / 弹层） ---------------- */
+  --app-shadow-card: 0 1px 3px rgba(31, 45, 61, 0.06), 0 1px 2px rgba(31, 45, 61, 0.04);
+  --app-shadow-popover: 0 12px 32px rgba(31, 45, 61, 0.12);
+
+  /* ---------------- 间距基数（4px 递增） ---------------- */
+  --app-space-1: 4px;
+  --app-space-2: 8px;
+  --app-space-3: 12px;
+  --app-space-4: 16px;
+  --app-space-5: 20px;
+  --app-space-6: 24px;
+  --app-space-8: 32px;
+
+  /* ---------------- 平台后台（深色顶栏专用灰阶 + 琥珀强调） ---------------- */
+  --app-platform-bg: #1f2937;
+  --app-platform-text: #e5e7eb;
+  --app-platform-text-muted: #d1d5db;
+  --app-platform-text-strong: #f9fafb;
+  --app-platform-accent: #f59e0b;
+  --app-platform-border: #374151;
+  --app-platform-page: #f3f4f6;
+  --app-platform-card-border: #e5e7eb;
+  --app-platform-heading: #111827;
+  --app-platform-label: #6b7280;
+  --app-platform-primary: #2563eb;
+  --app-platform-danger: #dc2626;
+  --app-platform-divider: #f0f0f0;
+}

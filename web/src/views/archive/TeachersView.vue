@@ -5,6 +5,7 @@ import type { FormInstance, FormRules } from 'element-plus'
 
 import { createTeacher, listTeachers, updateTeacher } from '@/api/archive'
 import { ApiError } from '@/api/http'
+import PageHeader from '@/components/PageHeader.vue'
 import { usePagedList } from '@/composables/usePagedList'
 import { TEACHER_STATUS_LABELS } from '@/types/archive'
 import type { Teacher, TeacherPayload, TeacherStatus } from '@/types/archive'
@@ -197,12 +198,10 @@ onMounted(() => {
 <template>
   <div class="page">
     <el-card shadow="never" class="page__card">
-      <div class="page__head">
-        <div class="page__actions">
-          <el-button plain :loading="exporting" @click="handleExport">导出 CSV</el-button>
-          <el-button type="primary" @click="openCreate">新建老师</el-button>
-        </div>
-      </div>
+      <PageHeader title="老师档案" subtitle="管理老师信息与在职状态">
+        <el-button plain :loading="exporting" @click="handleExport">导出 CSV</el-button>
+        <el-button type="primary" @click="openCreate">新建老师</el-button>
+      </PageHeader>
 
       <el-form :inline="true" class="page__filters" @submit.prevent="handleSearch">
         <el-form-item label="状态">
@@ -303,19 +302,7 @@ onMounted(() => {
 }
 
 .page__card {
-  border-radius: 10px;
-}
-
-.page__head {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  margin-bottom: 16px;
-}
-
-.page__actions {
-  display: flex;
-  gap: 8px;
+  border-radius: var(--app-radius-card);
 }
 
 .page__filters {

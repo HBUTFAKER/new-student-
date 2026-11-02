@@ -16,12 +16,12 @@ const title = computed(() => (typeof route.meta.title === 'string' ? route.meta.
 
 <style scoped>
 .placeholder {
-  border-radius: 10px;
+  border-radius: var(--app-radius-card);
 }
 
 .placeholder__hint {
   margin: 0;
   font-size: 13px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 </style>
