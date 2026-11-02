@@ -14,6 +14,30 @@
 
 ## §0 交接区（最新在最上面）
 
+### [7.6] 2026-11-02 · 部署收口（生产 compose + Nginx 同源反代 + 初始化/备份脚本 + 部署文档）· commit `dde5bd4` · CI `41449088766` 四 job 全绿
+
+**我改了什么**（纯部署物 + 文档，**零业务功能变更、零迁移零新表零加列**，表数仍 28 / 业务层 21；`Dockerfile` 仅补 `COPY scripts` 一行）
+
+1. `docker-compose.prod.yml`（新）：三服务——`db`（**不暴露宿主端口** + healthcheck + 数据卷）/ `api`（启动前 `alembic upgrade head` 再 uvicorn、healthcheck 打 `/health/db`、`restart: unless-stopped`）/ `web`（多阶段构建前端 dist + Nginx 静态 + 同源反代）。所有服务 `TZ=Asia/Shanghai`，compose 内零密钥（全 `${VAR}` 引用 env）。
+2. `web/Dockerfile`（新）：node:20-slim 构建 → nginx:1.27-alpine 托管。
+3. `deploy/nginx.conf`（新）：gzip、静态 hash 资产长缓存、index.html 不缓存、`client_max_body_size 10m`、代理超时 60s + 反代全部顶层前缀；`Accept` 头区分 SPA（history 模式 `/classes` `/reports` `/staff` `/platform` 与 API 同名——浏览器导航回 index.html，axios 反代后端）。
+4. `deploy/env.prod.example`（新）：`config.py` 全字段对表 + 逐行注释（JWT 必改强提示 / DB 双密码 / 微信 stub 切换 / 调度单实例开关 / 短信占位）。
+5. `scripts/init_platform_admin.py`（新）：从 env/参数读手机号+密码，幂等建生产首个 platform_admin（复用 argon2 `hash_password`；已存在则跳过）。
+6. `scripts/backup.sh`（新）：`pg_dump -Fc` 按日期落盘 + 保留 N 份轮转 + 恢复示例，零硬编码密码。
+7. `docs/deploy.md`（新）：从零到上线 9 步 + 上线 checklist + 小程序上线要点（合法域名/stub 切换）。
+
+**反代前缀清单**（26 个顶层前缀 = 23 业务 + 3 文档；漏一个 = 线上 404，`deploy/nginx.conf` 正则逐一列出）：
+
+`/health` `/auth` `/me` `/staff` `/admin` `/platform` `/students` `/parents` `/teachers` `/classrooms` `/bindings` `/invite-codes` `/courses` `/classes` `/schedule-rules` `/tenant-holidays` `/lessons` `/org-config` `/reports` `/purchases` `/ledger` `/refunds` `/transfers` `/docs` `/redoc` `/openapi.json`
+
+**本地 prod 冒烟全过**：compose config 校验 + nginx -t + 三服务起 + `/health/db` 200 + DB 5432 宿主连不上 + app_user 直查 `staff_account` 被 RLS 拒（0 行）而 owner 1 行 + init_platform_admin 幂等两遍（created→skipped）+ backup.sh 出 `PGDMP` dump。测试 407 passed + 6 既存 Windows flaky（隔离跑全过）+ 1 xfailed，CI Linux 零回归。
+
+**给发令部的指令**
+
+- 清单 7.6「部署收口」已落地：拿到空 VPS 照 `docs/deploy.md` 即可上线；`deploy/env.prod.example` 是生产 env 事实标准。
+- **后续任何新顶层路由前缀，必须同步加进 `deploy/nginx.conf` 反代正则 + 本清单**（与 §4「新接口补矩阵行」同款纪律）。
+- 范围外（二期）：监控告警 / K8s / 多实例调度锁 / CDN / 真实微信短信密钥接入，均未碰。
+
 ### [7.5] 2026-11-02 · 越权对账测试（权限矩阵收口 + RLS 覆盖审计 + 账本对账入 CI）· commit `2756f73` · CI `41405784431` 四 job 全绿
 
 **我改了什么**（纯测试与脚本，**零业务功能变更、零迁移零新表零加列**，表数仍 28 / 业务层 21）
