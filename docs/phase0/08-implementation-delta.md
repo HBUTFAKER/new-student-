@@ -14,6 +14,45 @@
 
 ## §0 交接区（最新在最上面）
 
+### [047] 2026-11-03 · 课时账本/交易域前端补齐 + 结课收口 + 三项口径修正 · commit `863d849` · CI `41507062776` 四 job 全绿
+
+**我改了什么**（后端只做三处口径收口，**零新表零新路由零迁移**，表数仍 28 / 业务层 21；前端新增账本页与交易操作，全引用设计令牌无裸色）
+
+**后端收口三处（接口均已存在，非重写）**
+
+1. **课前提醒过滤结课班** `notification_events.scan_lesson_reminders`：`select(Lesson)` 补 `.join(Class)` + `Class.status != "ended"`，只加过滤条件，通知引擎状态机一行未动。
+2. **考勤对结课班 409** `attendance._lesson_for_write`：查到 `Class.status == "ended"` 抛 `409 CLASS_ENDED`，历史已签到记录不动。
+3. **学生限额口径拍板** `subscription.count_active_students`：`status='active'` → `status.in_(("active","archived"))`，**只排除 suspended**（推翻 042/7.3「归档腾名额」——归档仍占名额）；402 文案由「归档学生可腾名额」改为「请删除学生或联系平台扩容」。
+
+**前端五块**
+
+1. **学生课时账本** `StudentLedgerView`（新，路由 `/archive/students/:id/ledger`，复用 `archive` 前缀**零新顶层路由**，nginx 反代不用动）：余额卡（渐变）+ 课时包明细 + 流水分页（类型 tag 各配色：购入/赠课/消耗/调整/退费/过期）+ 四操作按钮（购课登记/课时调整/退费/转班，admin/registrar 可见）。学生列表行新增「账本」入口。
+2. **退费强确认**：两步弹窗——第一步表单选包/填数量金额原因，第二步**红色警示框** `el-descriptions` 完整展示四要素（学生姓名/课时包名/退课时数/退费金额）+ danger 按钮「确认退费」（不用「确定」）。强确认由前端承担，后端 OfficeUser 直接退不变（一期信任制）。
+3. **补课排期**：课次详情弹窗加「安排补课」入口，拉 `GET /lessons/{id}/attendance` 过滤 absent/leave 缺勤名单 + 未来正常课次下拉，调 `POST /lessons/{id}/make-ups`（grant+1）；补课课次在课表明显标记。
+4. **班级结课**：行操作「结课」二次确认 → `PATCH /classes/{id}` status=ended；已结课灰色 tag + 课表置灰 + 「恢复」入口（接口层不新开路由）。
+5. **到期横幅常显** `AdminLayout`：expired 红「已到期」/ ≤3 天红 / ≤7 天黄 / >7 天 info（次要色不焦虑），文案统一「距到期还有 N 天」；platform_admin 不受影响。
+
+**文档 + 测试**
+
+- `02-permission-matrix.md`：课时包定义行改「随购课快照生成，无独立模板 CRUD」；退费流水行改「✅ 前端强确认 | 一期（信任制）」；V-06 红线加注「强确认由前端承担」。
+- **解除 xfail**：保留原 `test_course_package_definition_crud` xfail；新增真测试 `test_course_package_no_template_crud_snapshots_on_purchase`（`POST /course-packages` 404 + `POST /purchases` 快照字段完整：package_name「10次卡（赠2）」、balance_after 12、purchase/grant 两条流水）。
+- 新增 `test_ended_class_not_reminded` / `test_ended_class_rejects_check_in`（409 CLASS_ENDED）/ `test_student_limit_archive_still_occupies_slot`（归档后仍 402、used 含归档）。
+- `scripts/smoke_playwright.py` 新增场景 8（新建学生→账本入口→购课余额 0→10→退费强确认四要素→确认后余额 10→9 且流水出现「退费」行）+ 场景 9（班级「结课」二次确认→tag 灰→「恢复」入口），并修正场景 5 横幅断言（续费后由「消失」改为「常显 info + 距到期还有 N 天」）。
+
+**验证**
+
+- 后端全量 `RUN_DB_TESTS=1`：410 passed + 6 既存 Windows flaky（test_conflict×4 / test_ledger×1 / test_me_notifications×1，隔离重跑全过）+ 1 xfailed；净 +3 真测试（共 417 用例）。
+- 前端 `vue-tsc --noEmit` 零错误 + `vite build` 零 error；ruff check / format --check 全过。
+- Playwright 冒烟 **42 断言全过 + 控制台 0 报错**。
+- 新前端文件 grep 无裸色值（仅引用令牌）；无新顶层路由前缀。
+
+**给发令部的指令**
+
+- 结课班三行为已锁定：不发课前提醒、考勤 409 CLASS_ENDED、课表/列表置灰；限额口径正式改为「active+archived 全计、只排除 suspended」——**归档不再腾名额**，若后续要「归档腾名额」需重新拍板。
+- 课时包「无独立模板 CRUD、随购课快照生成」已落进 02 矩阵与测试锚定，后续不要再按「一期有模板 CRUD」出指令。
+- 退费「强确认」由前端承担（一期信任制），审批流仍列二期；矩阵 V-06 已同步。
+- 新账本路由 `/archive/students/:id/ledger` 复用 `archive` 前缀，nginx 反代无需变更（纪律：新顶层路由前缀才需补 `deploy/nginx.conf`）。
+
 ### [7.7] 2026-11-03 · 前端美化收口（视觉统一：设计令牌 + PageHeader 骨架 + 14 视图收口 + Dashboard 重做）· commit `b2d4f35` · CI `41502228815` 四 job 全绿
 
 **我改了什么**（纯视觉层，**零后端改动、零迁移零新表零加列、零 API/store/router/权限判断改动**；表数仍 28 / 业务层 21）
