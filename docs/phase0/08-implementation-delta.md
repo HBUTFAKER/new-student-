@@ -8,11 +8,55 @@
 > - 发令部：读 §0 最新一块 + §4 已锁定约定，再出指令。别只看 01~07 原文，那是基线，不是现状。
 > - 开发：动表结构、动既有测试、动已上线接口前，先读 §1 与 §2。
 
-当前状态：**阶段 3 收官（3.5 完成）**，Alembic head = `0011_subscribe_auth_quota`，全库 26 张表（业务层 19 张）。**阶段 4 收官**：4.1 前端骨架 + 4.2 档案与班级管理页 + 4.3 排课日历与拖拽调课 + 4.4 上（三个只读报表接口）+ 4.4 下（报表前端页）全部完成。4.4 上是阶段 4 唯一动后端的部分：零迁移、零新表。**阶段 5 进行中**：5.1 家长端小程序骨架 + 登录 + 请求封装、5.2 邀请码绑定 + 多孩子切换 + 管理端发码入口、5.3 课表/余额/扣课明细（三个 `/me` 只读接口 + 小程序三页 + 首页改工作台）、5.4 订阅授权收集（迁移 `0011` 给 `subscribe_auth` 加 `available_count` / `updated_at` + 两个 `/me` 接口 + 小程序自动授权与「通知设置」页）均已完成。5.3 是阶段 5 首次动后端（零迁移）；5.4 是阶段 5 第二个动后端的步骤（**加列不加表**，表数仍 26）。5.5 站内信 / 红点兜底是阶段 5 收官步：**加第 27 张表 `in_app_message`**（业务层 20），写入只挂签到扣课一个钩子，配三个 `/me` 读接口与小程序消息页 + 首页红点。**阶段 6 开篇（6.1 通知中心引擎）已完成**：加第 28 张表 `notification`（业务层 21），只做机制（幂等入队 + 状态机 + 重试 + worker + 通道适配器），不接具体业务事件。**6.2 微信订阅通道已完成**：`register_channel("wechat_subscribe", …)` 接到 6.1 引擎上，原子扣额度 + 降级 + 管理端测试接口，**零迁移、表数不变（28 / 业务 21）**。**6.3 服务号 + 短信通道已完成**：`channels` 数组从「全部尝试」改成「有序降级链、第一个成功即停」，新增 `wechat_mp` / `sms` 两通道 + `org_config.sms_daily_budget` 短信日预算列（迁移 `0014`，**加列不加表**）+ 管理端当日用量查询。另有 **5.4 补丁** `9a6ebd9`：修单次加课并发占位死锁（`40P01` → 409，越界改了排课写路径，可单独 revert）。**6.4 定时任务 + 漏发补偿已完成（阶段 6 收官）**：自写 asyncio 调度器（不上 APScheduler/Celery）接管 6.1 worker（互斥），驱动上课提醒（提前 1 天 + 1 小时，`org_config.lesson_reminder_hours`）与余额预警（≤5 课时，`org_config.balance_alert_threshold`，0=关）两条业务事件；wechat_subscribe 改 `ChannelSkipped` 纳入完整降级链（订阅 → 服务号 → 短信 → 站内信）；夜间静默 22:00–08:00；`sms_daily_budget` 默认 50→200；迁移 `0015`（**加列不加表**，表数仍 28 / 业务 21）；`GET /admin/notifications/stats` + `POST /admin/notifications/{id}/retry` 两个管理端接口；1000 条模拟验收通过（950 成功 / 50 漏发→retry 全救回）。**7.1 机构自助注册开通已完成（阶段 7 开工）**：公开 `POST /platform/register`（无认证，注册三件套=机构名+管理员手机号+密码）+ 试用版套餐（14 天，`_ensure_trial_plan` 插行不加表）+ web `/register` 注册页（守卫白名单），手动开通 `POST /platform/tenants` 保留不变；**零新表零加列零迁移**，表数仍 28 / 业务 21。**US-301 员工账号管理已完成（一期 P0 补齐）**：`POST/GET/PATCH /staff` + `DELETE /me/account` 四接口 + 复号复活（同 `(tenant_id, phone)` 停用账号覆盖置回 active）+ 防呆（`CANNOT_DISABLE_SELF`/`LAST_ADMIN`）+ web 员工账号页与顶栏注销入口；**零新表零加列零迁移**，表数仍 28 / 业务 21。**7.2 计费降级已完成**：到期只读闸门（写全拦 402 `SUBSCRIPTION_EXPIRED`）+ 手动续费 `POST /platform/tenants/{id}/renew` + 到期提醒横幅（≤7 天提示、≤3 天红、到期红只读）；**零新表零加列零迁移**，表数仍 28 / 业务 21。**7.3 套餐限额已完成（阶段 7 收官）**：学生数超限拦新建（402 `PLAN_LIMIT_EXCEEDED`，`POST /students` + `POST /students/bulk` 整批拒绝双入口）+ 月消息量超限停外发（`_dispatch` 入口判 `usage_meter` 当月用量、外发全 `ChannelSkipped(PLAN_MESSAGE_LIMIT)` 降级站内信兜底）+ `GET /me/subscription` 四字段 + `GET /platform/tenants/{id}/usage`；**零新表零加列零迁移**（复用 `usage_meter`/`plan`），表数仍 28 / 业务 21。**7.4 平台后台已完成（阶段 7 收官）**：`GET /platform/tenants`（列表：name 模糊 + 分页 + end_date 升序 + sub_status 三态 + 用量）、`GET /platform/tenants/{id}`（详情：列表字段 + 额度 + admin_name/phone）、`GET /platform/plans`（换套餐下拉）三只读接口（`platform_admin` 收口）；web 新增 `PlatformLayout`（深色顶栏平台标识）+ `PlatformTenantsView`（三卡 + 表格 + 搜索/分页 + 手动开通弹窗 + 详情抽屉进度条 + 续费弹窗）+ `/platform/tenants` 路由（`roles=['platform_admin']`）+ platform_admin 登录落点；`StaffRole` 扩 `platform_admin`；**零新表零加列零迁移**，表数仍 28 / 业务 21。
+当前状态：**阶段 3 收官（3.5 完成）**，Alembic head = `0011_subscribe_auth_quota`，全库 26 张表（业务层 19 张）。**阶段 4 收官**：4.1 前端骨架 + 4.2 档案与班级管理页 + 4.3 排课日历与拖拽调课 + 4.4 上（三个只读报表接口）+ 4.4 下（报表前端页）全部完成。4.4 上是阶段 4 唯一动后端的部分：零迁移、零新表。**阶段 5 进行中**：5.1 家长端小程序骨架 + 登录 + 请求封装、5.2 邀请码绑定 + 多孩子切换 + 管理端发码入口、5.3 课表/余额/扣课明细（三个 `/me` 只读接口 + 小程序三页 + 首页改工作台）、5.4 订阅授权收集（迁移 `0011` 给 `subscribe_auth` 加 `available_count` / `updated_at` + 两个 `/me` 接口 + 小程序自动授权与「通知设置」页）均已完成。5.3 是阶段 5 首次动后端（零迁移）；5.4 是阶段 5 第二个动后端的步骤（**加列不加表**，表数仍 26）。5.5 站内信 / 红点兜底是阶段 5 收官步：**加第 27 张表 `in_app_message`**（业务层 20），写入只挂签到扣课一个钩子，配三个 `/me` 读接口与小程序消息页 + 首页红点。**阶段 6 开篇（6.1 通知中心引擎）已完成**：加第 28 张表 `notification`（业务层 21），只做机制（幂等入队 + 状态机 + 重试 + worker + 通道适配器），不接具体业务事件。**6.2 微信订阅通道已完成**：`register_channel("wechat_subscribe", …)` 接到 6.1 引擎上，原子扣额度 + 降级 + 管理端测试接口，**零迁移、表数不变（28 / 业务 21）**。**6.3 服务号 + 短信通道已完成**：`channels` 数组从「全部尝试」改成「有序降级链、第一个成功即停」，新增 `wechat_mp` / `sms` 两通道 + `org_config.sms_daily_budget` 短信日预算列（迁移 `0014`，**加列不加表**）+ 管理端当日用量查询。另有 **5.4 补丁** `9a6ebd9`：修单次加课并发占位死锁（`40P01` → 409，越界改了排课写路径，可单独 revert）。**6.4 定时任务 + 漏发补偿已完成（阶段 6 收官）**：自写 asyncio 调度器（不上 APScheduler/Celery）接管 6.1 worker（互斥），驱动上课提醒（提前 1 天 + 1 小时，`org_config.lesson_reminder_hours`）与余额预警（≤5 课时，`org_config.balance_alert_threshold`，0=关）两条业务事件；wechat_subscribe 改 `ChannelSkipped` 纳入完整降级链（订阅 → 服务号 → 短信 → 站内信）；夜间静默 22:00–08:00；`sms_daily_budget` 默认 50→200；迁移 `0015`（**加列不加表**，表数仍 28 / 业务 21）；`GET /admin/notifications/stats` + `POST /admin/notifications/{id}/retry` 两个管理端接口；1000 条模拟验收通过（950 成功 / 50 漏发→retry 全救回）。**7.1 机构自助注册开通已完成（阶段 7 开工）**：公开 `POST /platform/register`（无认证，注册三件套=机构名+管理员手机号+密码）+ 试用版套餐（14 天，`_ensure_trial_plan` 插行不加表）+ web `/register` 注册页（守卫白名单），手动开通 `POST /platform/tenants` 保留不变；**零新表零加列零迁移**，表数仍 28 / 业务 21。**US-301 员工账号管理已完成（一期 P0 补齐）**：`POST/GET/PATCH /staff` + `DELETE /me/account` 四接口 + 复号复活（同 `(tenant_id, phone)` 停用账号覆盖置回 active）+ 防呆（`CANNOT_DISABLE_SELF`/`LAST_ADMIN`）+ web 员工账号页与顶栏注销入口；**零新表零加列零迁移**，表数仍 28 / 业务 21。**7.2 计费降级已完成**：到期只读闸门（写全拦 402 `SUBSCRIPTION_EXPIRED`）+ 手动续费 `POST /platform/tenants/{id}/renew` + 到期提醒横幅（≤7 天提示、≤3 天红、到期红只读）；**零新表零加列零迁移**，表数仍 28 / 业务 21。**7.3 套餐限额已完成（阶段 7 收官）**：学生数超限拦新建（402 `PLAN_LIMIT_EXCEEDED`，`POST /students` + `POST /students/bulk` 整批拒绝双入口）+ 月消息量超限停外发（`_dispatch` 入口判 `usage_meter` 当月用量、外发全 `ChannelSkipped(PLAN_MESSAGE_LIMIT)` 降级站内信兜底）+ `GET /me/subscription` 四字段 + `GET /platform/tenants/{id}/usage`；**零新表零加列零迁移**（复用 `usage_meter`/`plan`），表数仍 28 / 业务 21。**7.4 平台后台已完成（阶段 7 收官）**：`GET /platform/tenants`（列表：name 模糊 + 分页 + end_date 升序 + sub_status 三态 + 用量）、`GET /platform/tenants/{id}`（详情：列表字段 + 额度 + admin_name/phone）、`GET /platform/plans`（换套餐下拉）三只读接口（`platform_admin` 收口）；web 新增 `PlatformLayout`（深色顶栏平台标识）+ `PlatformTenantsView`（三卡 + 表格 + 搜索/分页 + 手动开通弹窗 + 详情抽屉进度条 + 续费弹窗）+ `/platform/tenants` 路由（`roles=['platform_admin']`）+ platform_admin 登录落点；`StaffRole` 扩 `platform_admin`；**零新表零加列零迁移**，表数仍 28 / 业务 21。**048 课堂反馈已完成（一期正式收官）**：加第 29 张表 `lesson_feedback`（业务层 22），迁移 `0016`（首个带迁移步骤，up/down 双写），课后反馈老师写→家长端查看，**反馈不发任何通知**。
 
 ---
 
 ## §0 交接区（最新在最上面）
+
+### [048] 2026-11-03 · 课堂反馈（一期收官步：老师课后写反馈 → 家长端查看）· commit `3d12e81` · CI `41513309094` 四 job 全绿
+
+**我改了什么**（本项目**第一个带迁移的步骤**；业务表 21→22，全库 28→29 张表，迁移 `0016`）
+
+1. **迁移 `0016_lesson_feedback`**（up/down 双写）：新表 `lesson_feedback`（`id`/`tenant_id`/`lesson_id`/`student_id`/`teacher_id`/`content`/`created_at`/`updated_at`）+ 唯一约束 `uq_lesson_feedback_lesson_student(lesson_id, student_id)` + 两个索引（含 `(tenant_id, student_id, created_at DESC)`）；**RLS 启用 + FORCE**（`tenant_isolation_select`/`tenant_isolation_modify` 锚 `app.tenant_id` GUC，与业务表一致）+ `GRANT ... TO app_user`。
+2. **模型** `LessonFeedback` + `app/models/__init__.py` 业务表清单 21→22（`BUSINESS_TABLES` / `RLS_TABLES` / `__all__` 同步）。
+3. **后端三接口**：
+   - `PUT /lessons/{id}/feedback`：批量 upsert（items 1~100，单条 content 1~2000 字），已存在覆盖更新（`on_conflict_do_update`）；权限=任课老师本人 + 教务 + admin；老师写别人任教课次返回 **404**（沿用跨租户/跨班级 404 口径，不用签到那套 403）；`teacher_id` 恒=任课老师（教务/admin 代写也归任课老师名下，不单独记代写人）；不做时间限制。
+   - `GET /lessons/{id}/feedback`：同权限，返回该课次全部已写反馈（没写的学生不在列表）。
+   - `GET /me/children/{student_id}/feedback`：家长端倒序分页（新→旧），每条含课次日期/课程/班级/老师名/内容；沿用 `/me` 组绑定校验（非绑定 404 `STUDENT_NOT_FOUND`），时间转业务时区。
+4. **管理端** `TimetableView` 课次详情弹窗新增「课后反馈」区块：学生名单逐行显示，已写反馈显示内容摘要 +「已反馈」tag；逐行「填写/编辑」→ 文本框（1~2000 字，show-word-limit）→ 保存；全引用设计令牌（`--el-*`/`--app-*`）无裸色。
+5. **家长端小程序**：新页 `pages/feedback/index`（倒序列表 + 空态「老师上完课后会在这里记录反馈」+ 下拉刷新/上拉加载）+ home 入口「课堂反馈」+ `switch-student` 切换跟随 + `portal.decorateFeedback`。
+6. **反馈不发通知**：不触发消息推送、不进通知引擎、不占消息额度；通知引擎 / 扣课 `ledger.py` / 写闸门 / 限额一行未碰。
+
+**测试**
+
+- `tests/test_feedback.py`（4 例）：老师写→家长查、覆盖更新→家长见新版、老师写别人课次 404 + 教务可代写、家长查非绑定孩子 404、重复 PUT 幂等。
+- 静态同步：`test_models.py` 业务表 21→22 + `lesson_feedback` 加入第四张 `updated_at` 例外表；`test_migrations.py` 表数 28→29（up/down 往返）；`test_rls_coverage.py` 清单 21→22；删 `test_permission_matrix.py` 里 046 遗留的 xfail。
+- `scripts/smoke_playwright.py` 新增**场景 10**：写反馈→重进课次详情可编辑→内容正确显示，断言只增不减、0 控制台报错（本地手跑；CI docker-smoke 只查健康端点，不跑本脚本）。
+
+**验证**
+
+- 后端全量 `RUN_DB_TESTS=1`：**419 passed + 6 既存 Windows flaky**（test_conflict×4 / test_ledger×1 / test_me_notifications×1，隔离重跑全过）；净 +4 真测试。
+- 前端 `vue-tsc --noEmit` 零错误 + `vite build` 零 error；小程序 `node --test` 21 passed；ruff check / format --check 全过。
+- 无新顶层路由前缀（`/lessons`、`/me` 均既有前缀，nginx 反代不用动）。
+
+**一期功能清单自检**（P0 用户故事逐条已落地）
+
+| 域 | 一期 P0 故事 | 状态 |
+|---|---|---|
+| 家长端只读 | US-001 登录绑定 / US-002 周课表 / US-003 余额 / US-004 明细 / US-010 多孩切换 | ✅ 5.2 / 5.3 |
+| 课堂反馈（**048 收官步，二期提前**） | US-103 老师写 / US-005 家长看 | ✅ 048 |
+| 老师 | US-101 课表+名单 / US-102 点名签到 | ✅ 4.3 + 签到 |
+| 档案 | US-201 学生 / US-202 家长-学生绑定 / US-203 老师 / US-216 教室 | ✅ 4.2 |
+| 课程账本 | US-204 课程班级 / US-205 课时包缴费 / US-206 账本流水 / US-209 调整 | ✅ 4.2 + 账本 |
+| 排课交易 | US-207 排课冲突 / US-208 补录幂等 / US-210 转班 / US-217 请假缺勤扣课规则 | ✅ 4.3 + 交易 |
+| 权限 | US-301 员工账号角色分级（管理员/教务/老师） | ✅ US-301 |
+
+**给发令部的指令**
+
+- 一期正式收官：业务表 **22** 张（`lesson_feedback` 已入 RLS 覆盖清单，后续新表照此办理）；Alembic head = `0016_lesson_feedback`（全库 29 张表）。
+- 课堂反馈**不发任何通知**（不碰通知引擎、不占消息额度），家长只在小程序「课堂反馈」页主动查看，无推送。这是拍板口径，后续不要按「发通知」出指令。
+- 老师写别人任教课次返回 **404**（不是签到那套 403 `OUT_OF_SCOPE`），沿用跨租户/跨班级 404 口径；`teacher_id` 恒=任课老师，教务/admin 代写也归任课老师名下，不单独记代写人。
 
 ### [047] 2026-11-03 · 课时账本/交易域前端补齐 + 结课收口 + 三项口径修正 · commit `863d849` · CI `41507062776` 四 job 全绿
 
