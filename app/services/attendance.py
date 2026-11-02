@@ -86,6 +86,10 @@ async def _lesson_for_write(db: AsyncSession, lesson_id: UUID, teacher_id: UUID 
     if lesson is None:
         raise AppError(404, "LESSON_NOT_FOUND", "课次不存在")
     await _ensure_scope(db, lesson, teacher_id)
+    # 047：结课班不再记考勤（历史已签到记录不动，只拦新签到/补录）。
+    class_status = await db.scalar(select(Class.status).where(Class.id == lesson.class_id))
+    if class_status == "ended":
+        raise AppError(409, "CLASS_ENDED", "班级已结课，无法考勤")
     if lesson.status == "cancelled":
         raise AppError(422, "LESSON_CANCELLED", "已取消的课次不能签到")
     if datetime.now(BUSINESS_TZ) < lesson.start_at:

@@ -201,9 +201,13 @@ async def scan_lesson_reminders(db_factory: SessionFactory, *, now: datetime | N
                     upper = now + timedelta(minutes=next_offset) if next_offset is not None else now
                     lessons = (
                         await db.scalars(
-                            select(Lesson).where(
+                            select(Lesson)
+                            .join(Class, Class.id == Lesson.class_id)
+                            .where(
                                 Lesson.tenant_id == tenant_id,
                                 Lesson.status == "normal",
+                                # 047：结课班未来已生成的课次不再发上课提醒。
+                                Class.status != "ended",
                                 Lesson.start_at > upper,
                                 Lesson.start_at <= now + timedelta(minutes=offset),
                             )

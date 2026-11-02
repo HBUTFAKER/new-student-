@@ -27,23 +27,27 @@ const pageTitle = computed(() => (typeof route.meta.title === 'string' ? route.m
 
 const subscription = ref<SubscriptionStatus | null>(null)
 
-const banner = computed<{ type: 'warning' | 'error'; text: string } | null>(() => {
+const banner = computed<{ type: 'warning' | 'error' | 'info'; text: string } | null>(() => {
   const sub = subscription.value
   if (!sub) return null
   if (sub.expired) {
     return { type: 'error', text: '服务已到期，当前为只读模式，请联系平台续费' }
   }
-  if (sub.days_left > 7) return null
-  if (sub.days_left > 3) {
+  const days = sub.days_left
+  if (days <= 3) {
     return {
-      type: 'warning',
-      text: `${sub.plan_name} 剩余 ${sub.days_left} 天，到期后系统将转为只读`,
+      type: 'error',
+      text: `${sub.plan_name} 距到期还有 ${days} 天，请尽快续费，到期后系统将转为只读`,
     }
   }
-  return {
-    type: 'error',
-    text: `${sub.plan_name} 仅剩 ${sub.days_left} 天，请尽快续费，到期后系统将转为只读`,
+  if (days <= 7) {
+    return {
+      type: 'warning',
+      text: `${sub.plan_name} 距到期还有 ${days} 天，到期后系统将转为只读`,
+    }
   }
+  // 047：只要订阅有到期日就常显，>7 天用次要色不制造焦虑。
+  return { type: 'info', text: `${sub.plan_name} 距到期还有 ${days} 天` }
 })
 
 onMounted(async () => {

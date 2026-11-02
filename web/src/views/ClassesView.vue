@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 
 import { listClassrooms, listTeachers } from '@/api/archive'
@@ -315,6 +315,46 @@ async function handleRemove(student: Enrollment): Promise<void> {
   }
 }
 
+// ---------------------------------------------------------------- 结课 / 恢复（047）
+
+async function endClass(row: ClassItem): Promise<void> {
+  try {
+    await ElMessageBox.confirm(
+      `结课后「${row.name}」不再生成课次、不发上课提醒、不可考勤；学员名单与课时余额流水全部保留。确认结课？`,
+      '结课确认',
+      { confirmButtonText: '确认结课', cancelButtonText: '取消', type: 'warning' },
+    )
+  } catch {
+    return
+  }
+  try {
+    await updateClass(row.id, { status: 'ended' })
+    ElMessage.success('已结课')
+    await load(query())
+  } catch (error) {
+    ElMessage.error(error instanceof ApiError ? error.message : '结课失败')
+  }
+}
+
+async function resumeClass(row: ClassItem): Promise<void> {
+  try {
+    await ElMessageBox.confirm(`确认恢复「${row.name}」为进行中？`, '恢复确认', {
+      confirmButtonText: '确认恢复',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+  } catch {
+    return
+  }
+  try {
+    await updateClass(row.id, { status: 'active' })
+    ElMessage.success('已恢复')
+    await load(query())
+  } catch (error) {
+    ElMessage.error(error instanceof ApiError ? error.message : '恢复失败')
+  }
+}
+
 // ---------------------------------------------------------------- 导出
 
 const exporting = ref(false)
@@ -420,10 +460,19 @@ onMounted(async () => {
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="160" fixed="right">
+        <el-table-column label="操作" width="230" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
             <el-button link type="primary" @click="openRoster(row)">学员名单</el-button>
+            <el-button
+              v-if="row.status === 'active'"
+              link
+              type="warning"
+              @click="endClass(row)"
+            >
+              结课
+            </el-button>
+            <el-button v-else link type="primary" @click="resumeClass(row)">恢复</el-button>
           </template>
         </el-table-column>
       </el-table>

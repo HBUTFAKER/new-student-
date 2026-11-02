@@ -48,6 +48,7 @@ export interface ClassPayload {
   term_start: string
   term_end: string
   capacity?: number | null
+  status?: ClassStatus
 }
 
 export interface Enrollment {

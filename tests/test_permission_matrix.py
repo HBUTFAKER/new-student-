@@ -844,6 +844,48 @@ async def test_course_package_definition_crud(
     assert resp.status_code == 201
 
 
+async def test_course_package_no_template_crud_snapshots_on_purchase(
+    client: httpx.AsyncClient, matrix_seed: MatrixSeed
+) -> None:
+    """047 拍板（2026-11-03）：课时包无独立模板 CRUD，定义随购课内联快照生成。
+
+    1. ``POST /course-packages`` 不存在 → 404（不是 201）。
+    2. ``POST /purchases`` 把课时包定义固化成快照，流水含完整快照字段。
+    """
+
+    seed = matrix_seed
+
+    # 1. 不存在课时包定义 CRUD 接口
+    resp = await client.post(
+        "/course-packages",
+        json={"name": "10次卡", "total_lessons": 10, "price": "1000.00", "valid_months": 6},
+        headers=_bearer(seed.admin_a),
+    )
+    assert resp.status_code == 404, f"课时包无独立 CRUD，应 404，实际 {resp.status_code}"
+
+    # 2. 购课登记把课时包快照落库（student_a2 无历史余额，balance_after = 10 + 2）
+    purchase = await client.post(
+        "/purchases",
+        json={
+            "student_id": str(seed.student_a2),
+            "course_id": str(seed.course_a),
+            "lesson_count": 10,
+            "gift_lesson_count": 2,
+            "valid_months": 6,
+            "amount": 1000.00,
+        },
+        headers=_bearer(seed.admin_a),
+    )
+    assert purchase.status_code == 201, purchase.text
+    body = purchase.json()
+    assert body["package_id"], "课时包快照应生成 package_id"
+    assert body["package_name"] == "10次卡（赠2）", body["package_name"]
+    assert body["balance_after"] == 12, body["balance_after"]
+    entries = body["entries"]
+    assert any(e["type"] == "purchase" and e["delta"] == 10 for e in entries), "应有购买流水"
+    assert any(e["type"] == "grant" and e["delta"] == 2 for e in entries), "应有赠课流水"
+
+
 async def test_no_direct_balance_update_endpoint(
     client: httpx.AsyncClient, matrix_seed: MatrixSeed
 ) -> None:

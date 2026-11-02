@@ -793,3 +793,31 @@ async def test_makeup_seat_is_promoted_in_place(
     assert again.json()["results"][0]["deduplicated"] is True
     rows = await consume_rows(owner_engine, student_id=seed.student1_id, lesson_id=lesson_id)
     assert sum(delta for delta, _ in rows) == -1
+
+
+async def test_ended_class_rejects_check_in(
+    client, owner_engine, attendance_seed: AttendanceSeed
+) -> None:
+    """047：结课班不可签到/补录，返回 409 CLASS_ENDED。"""
+
+    seed = attendance_seed
+    headers = await login(client, seed.admin_phone)
+    lesson_id = await seed_lesson(
+        owner_engine,
+        seed,
+        class_id=seed.class_a_id,
+        classroom_id=seed.classroom1_id,
+        teacher_id=seed.teacher1_id,
+        start_at=at(past_day(), 18),
+        end_at=at(past_day(), 19),
+    )
+
+    async with owner_engine.begin() as connection:
+        await connection.execute(
+            text("UPDATE class SET status = 'ended' WHERE id = :id"),
+            {"id": seed.class_a_id},
+        )
+
+    response = await mark(client, headers, lesson_id, [(seed.student1_id, "present")])
+    assert response.status_code == 409, response.text
+    assert response.json()["error"]["code"] == "CLASS_ENDED"

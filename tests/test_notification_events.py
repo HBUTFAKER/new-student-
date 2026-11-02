@@ -257,6 +257,25 @@ async def test_cancelled_lesson_not_reminded(db_factory, owner_engine, seed) -> 
     )
 
 
+async def test_ended_class_not_reminded(db_factory, owner_engine, seed) -> None:
+    """047：结课班未来已生成的课次不再发上课提醒。"""
+
+    start = datetime(2026, 12, 1, 18, 0, tzinfo=BUSINESS_TZ)
+    await insert_lesson(owner_engine, seed, start_at=start)
+    async with owner_engine.begin() as connection:
+        await connection.execute(
+            text("UPDATE class SET status = 'ended' WHERE id = :id"),
+            {"id": seed.class_id},
+        )
+    await ne.scan_lesson_reminders(db_factory, now=start - timedelta(minutes=60))
+    assert (
+        await count_notifications(
+            owner_engine, tenant_id=seed.tenant_id, event_type=ne.EVENT_LESSON_REMINDER
+        )
+        == 0
+    )
+
+
 async def test_silent_window_defers_one_day_reminder(db_factory, owner_engine, seed) -> None:
     """0:30 的课，提前 1 天提醒：0:30 在静默窗口不入队，8:00 后下一轮扫描自然捡起。"""
 

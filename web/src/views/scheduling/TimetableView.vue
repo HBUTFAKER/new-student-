@@ -3,9 +3,11 @@ import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 import { listClassrooms, listTeachers } from '@/api/archive'
-import { listClasses } from '@/api/course'
+import { getAttendance } from '@/api/attendance'
+import { listClasses, listClassStudents } from '@/api/course'
 import { ApiError } from '@/api/http'
 import { createLesson, listAllLessons, patchLesson } from '@/api/lesson'
+import { createMakeup } from '@/api/trade'
 import type { Classroom, Teacher } from '@/types/archive'
 import type { ClassItem } from '@/types/course'
 import type { ConflictItem, ConflictRow, ConflictType, Lesson } from '@/types/lesson'
@@ -43,6 +45,11 @@ const loading = ref(false)
 const classes = ref<ClassItem[]>([])
 const classrooms = ref<Classroom[]>([])
 const teachers = ref<Teacher[]>([])
+
+/** 已结课班级 id 集合：其课次在课表中置灰（047） */
+const endedClassIds = computed(
+  () => new Set(classes.value.filter((item) => item.status === 'ended').map((item) => item.id)),
+)
 
 // ---------------------------------------------------------------- 窗口与取数
 
@@ -553,6 +560,89 @@ function canOperate(lesson: Lesson | null): boolean {
   return !!lesson && lesson.status !== 'cancelled' && !isStarted(lesson)
 }
 
+// ---------------------------------------------------------------- 补课排期（047）
+
+const makeupVisible = ref(false)
+const makeupLoading = ref(false)
+const makeupSubmitting = ref(false)
+const absentStudents = ref<{ id: string; name: string }[]>([])
+const makeupTargets = ref<Lesson[]>([])
+const makeupStudentId = ref('')
+const makeupTargetId = ref('')
+
+function openMakeup(): void {
+  if (!detailLesson.value) return
+  makeupStudentId.value = ''
+  makeupTargetId.value = ''
+  makeupVisible.value = true
+  void loadAbsentStudents()
+  void loadMakeupTargets()
+}
+
+async function loadAbsentStudents(): Promise<void> {
+  if (!detailLesson.value) return
+  makeupLoading.value = true
+  try {
+    const [attendance, roster] = await Promise.all([
+      getAttendance(detailLesson.value.id),
+      listClassStudents(detailLesson.value.class_id),
+    ])
+    const nameMap = new Map(roster.items.map((s) => [s.student_id, s.student_name]))
+    absentStudents.value = attendance.items
+      .filter((r) => r.status === 'absent' || r.status === 'leave')
+      .map((r) => ({ id: r.student_id, name: nameMap.get(r.student_id) ?? r.student_id.slice(0, 8) }))
+  } catch (error) {
+    absentStudents.value = []
+    ElMessage.error(error instanceof ApiError ? error.message : '缺勤名单加载失败')
+  } finally {
+    makeupLoading.value = false
+  }
+}
+
+async function loadMakeupTargets(): Promise<void> {
+  if (!detailLesson.value) return
+  try {
+    const from = isoAt(addDays(businessToday(), 1), 0)
+    const to = isoAt(addDays(businessToday(), 60), 0)
+    const all = await listAllLessons({ from, to })
+    makeupTargets.value = all.filter(
+      (item) => item.status === 'normal' && item.id !== detailLesson.value!.id,
+    )
+  } catch (error) {
+    makeupTargets.value = []
+    ElMessage.error(error instanceof ApiError ? error.message : '补课课次加载失败')
+  }
+}
+
+async function submitMakeup(): Promise<void> {
+  if (!detailLesson.value) return
+  if (!makeupStudentId.value) {
+    ElMessage.warning('请选择缺勤学生')
+    return
+  }
+  if (!makeupTargetId.value) {
+    ElMessage.warning('请选择目标课次')
+    return
+  }
+  makeupSubmitting.value = true
+  try {
+    await createMakeup(detailLesson.value.id, {
+      student_id: makeupStudentId.value,
+      target_lesson_id: makeupTargetId.value,
+    })
+    ElMessage.success('已登记补课')
+    makeupVisible.value = false
+  } catch (error) {
+    ElMessage.error(error instanceof ApiError ? error.message : '补课登记失败')
+  } finally {
+    makeupSubmitting.value = false
+  }
+}
+
+function targetLabel(lesson: Lesson): string {
+  return `${lesson.class_name} · ${formatMonthDay(datePart(lesson.start_at))} ${timePart(lesson.start_at)}`
+}
+
 onMounted(() => {
   void loadOptions()
   void loadWindow()
@@ -661,6 +751,7 @@ onMounted(() => {
                   'is-pending': pendingId === lesson.id,
                   'is-draggable': isDraggable(lesson),
                   'is-locked': !isDraggable(lesson),
+                  'is-class-ended': endedClassIds.has(lesson.class_id),
                 },
               ]"
               :style="blockStyle(lesson)"
@@ -761,6 +852,14 @@ onMounted(() => {
       <template #footer>
         <el-button @click="detailVisible = false">关闭</el-button>
         <el-button
+          type="primary"
+          plain
+          :disabled="!detailLesson || detailLesson.status === 'cancelled'"
+          @click="detailLesson && openMakeup()"
+        >
+          安排补课
+        </el-button>
+        <el-button
           type="warning"
           plain
           :disabled="!canOperate(detailLesson)"
@@ -776,6 +875,47 @@ onMounted(() => {
         >
           取消课次
         </el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="makeupVisible" title="安排补课" width="520px">
+      <div v-loading="makeupLoading">
+        <el-alert
+          title="把缺勤/请假学生补到一节未来的正常课次，登记后该课次即出现补课学生"
+          type="info"
+          show-icon
+          :closable="false"
+          class="makeup__tip"
+        />
+        <el-form label-width="90px">
+          <el-form-item label="缺勤学生" required>
+            <el-select v-model="makeupStudentId" placeholder="选择缺勤/请假学生" filterable style="width: 100%">
+              <el-option
+                v-for="item in absentStudents"
+                :key="item.id"
+                :label="item.name"
+                :value="item.id"
+              />
+            </el-select>
+            <div v-if="absentStudents.length === 0 && !makeupLoading" class="makeup__empty">
+              该课次还没有缺勤/请假学生，先完成签到后才能补课
+            </div>
+          </el-form-item>
+          <el-form-item label="目标课次" required>
+            <el-select v-model="makeupTargetId" placeholder="选择未来课次" filterable style="width: 100%">
+              <el-option
+                v-for="item in makeupTargets"
+                :key="item.id"
+                :label="targetLabel(item)"
+                :value="item.id"
+              />
+            </el-select>
+          </el-form-item>
+        </el-form>
+      </div>
+      <template #footer>
+        <el-button @click="makeupVisible = false">取消</el-button>
+        <el-button type="primary" :loading="makeupSubmitting" @click="submitMakeup">确认补课</el-button>
       </template>
     </el-dialog>
   </div>
@@ -937,6 +1077,13 @@ onMounted(() => {
   background-color: var(--el-color-info-light-9);
   color: var(--el-text-color-secondary);
   text-decoration: line-through;
+}
+
+.timetable__block.is-class-ended {
+  border-left-color: var(--el-text-color-disabled);
+  background-color: var(--el-fill-color-light);
+  color: var(--el-text-color-secondary);
+  opacity: 0.75;
 }
 
 .timetable__block.is-locked {
@@ -1104,6 +1251,16 @@ onMounted(() => {
 
 .timetable__legend-tip {
   margin-left: 8px;
+  color: var(--el-text-color-secondary);
+}
+
+.makeup__tip {
+  margin-bottom: 12px;
+}
+
+.makeup__empty {
+  margin-top: 4px;
+  font-size: 12px;
   color: var(--el-text-color-secondary);
 }
 

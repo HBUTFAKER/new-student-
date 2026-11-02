@@ -52,6 +52,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '学生档案', roles: OFFICE },
       },
       {
+        path: 'archive/students/:id/ledger',
+        name: 'student-ledger',
+        component: () => import('@/views/archive/StudentLedgerView.vue'),
+        meta: { title: '课时账本', roles: OFFICE },
+      },
+      {
         path: 'archive/parents',
         name: 'archive-parents',
         component: () => import('@/views/archive/ParentsView.vue'),

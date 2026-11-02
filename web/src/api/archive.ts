@@ -21,6 +21,10 @@ export function listStudents(params: Query): Promise<Paged<Student>> {
   return http.get<Paged<Student>>('/students', { params }).then((r) => r.data)
 }
 
+export function getStudent(id: string): Promise<Student> {
+  return http.get<Student>(`/students/${id}`).then((r) => r.data)
+}
+
 export function createStudent(payload: StudentPayload): Promise<Student> {
   return http.post<Student>('/students', payload).then((r) => r.data)
 }

@@ -179,17 +179,20 @@ async def get_plan_limits(db: AsyncSession, tenant_id: UUID) -> PlanLimits | Non
 
 
 async def count_active_students(db: AsyncSession, tenant_id: UUID) -> int:
-    """在档（status='active'）学生数。归档/停用不占名额（7.3 口径）。
+    """学生数（047 口径）：active + archived 全计，仅排除 suspended（停用/删除）。
 
-    ``db`` 必须是 owner 连接（显式 ``tenant_id`` 过滤，绕 RLS）；租户层连接在 RLS 下
-    已限到当前租户，也能得出同值，但这里统一走 owner 口径和 ``check_student_limit`` 一致。
+    047 拍板推翻 042/7.3 的「归档腾名额」：归档学生仍占名额，机构要腾名额只能真删
+    （suspended）或升级套餐。``db`` 必须是 owner 连接（显式 ``tenant_id`` 过滤，绕 RLS）。
     """
 
     return int(
         await db.scalar(
             select(func.count())
             .select_from(Student)
-            .where(Student.tenant_id == tenant_id, Student.status == "active")
+            .where(
+                Student.tenant_id == tenant_id,
+                Student.status.in_(("active", "archived")),
+            )
         )
         or 0
     )
@@ -210,7 +213,7 @@ async def check_student_limit(db: AsyncSession, tenant_id: UUID) -> None:
         raise AppError(
             402,
             "PLAN_LIMIT_EXCEEDED",
-            f"学生数已达套餐上限 {limits.max_students} 人，归档不活跃学生可腾出名额",
+            f"学生数已达套餐上限 {limits.max_students} 人，请删除学生或联系平台扩容",
         )
 
 
@@ -226,7 +229,7 @@ async def check_student_bulk_limit(db: AsyncSession, tenant_id: UUID, n: int) ->
         raise AppError(
             402,
             "PLAN_LIMIT_EXCEEDED",
-            f"剩余名额 {remaining} 个，本批 {n} 人，请归档学生或联系平台扩容",
+            f"剩余名额 {remaining} 个，本批 {n} 人，请删除学生或联系平台扩容",
         )
 
 

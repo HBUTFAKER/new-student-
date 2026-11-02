@@ -1,18 +1,21 @@
-"""端到端冒烟脚本（040 补账 + 7.2 到期降级）。
+"""端到端冒烟脚本（040 补账 + 7.2 到期降级 + 047 课时账本/退费强确认/结课）。
 
 前置：本地 PG（localhost:55432）+ uvicorn 真后端（:8000）+ vite dev（:5173）已启动。
 运行：``.venv/Scripts/python.exe scripts/smoke_playwright.py``（cwd=项目根）。
 
-覆盖场景（≥18 断言，全程 0 条控制台报错）：
+覆盖场景（≥30 断言，全程 0 条控制台报错）：
   1. admin 新建员工账号 → 列表出现新行
   2. 停用员工 → 二次确认弹窗 → 确认后状态变「停用」
   3. teacher 直输 /staff 路由 → 被拦 403
   4. teacher 顶栏「注销我的账号」→ 输密码确认 → 跳登录页且再登录 401「账号已停用」
   5. 7.2：改库 end_date=昨天 → 刷新出现红色降级横幅 → 保存写操作报 402 文案
-     → 改回未来日期 → 横幅消失、写操作成功
+     → 改回未来日期 → 横幅常显(次要色「距到期还有 N 天」)、写操作成功
   6. 7.3：改库 max_students=1 → 建 1 人成功 → 黄条 → 第 2 人 402 → 改大恢复
   7. 7.4：platform_admin 登录落平台后台 → 三卡 → 过期机构详情用量 → 续费 30 天 tag 红变绿
      → 机构 admin 直输 /platform/tenants 被拦 403
+  8. 047：学生列表「账本」入口 → 购课登记余额 0→10 → 退费两步强确认四要素完整
+     → 确认后余额 10→9 且流水出现「退费」行
+  9. 047：班级「结课」二次确认 → 状态 tag 变「已结课」（灰）且出现「恢复」入口
 
 每次运行生成唯一手机号 + 独立租户，脚本幂等，不污染既有数据。
 """
@@ -85,6 +88,14 @@ async def seed() -> dict:
     admin_staff_id = uuid4()
     teacher_staff_id = uuid4()
 
+    # 047 账本/交易域 + 结课场景：课程/教室/班级（唯一名，供 UI 定位）。
+    # 注意：学生不在 seed 里建——7.3 限额场景依赖主租户从 0 学生起算，账本学生在 场景 8 经 UI 新建。
+    course_id = uuid4()
+    classroom_id = uuid4()
+    class_id = uuid4()
+    course_name = f"冒烟课程-{uuid4().hex[:6]}"
+    class_name = f"冒烟结课班-{uuid4().hex[:6]}"
+
     # 7.4 平台后台：platform_admin 账号 + 一个过期机构（用于续费场景）
     platform_phone = _gen_phone()
     platform_pass = "smoke-platform-123456"
@@ -128,6 +139,33 @@ async def seed() -> dict:
                 teacher_id,
                 tenant_id,
                 "冒烟老师",
+            )
+
+            # ---- 047 账本/交易域 + 结课种子 ----
+            await conn.execute(
+                "INSERT INTO course (id, tenant_id, name, status) VALUES ($1, $2, $3, 'active')",
+                course_id,
+                tenant_id,
+                course_name,
+            )
+            await conn.execute(
+                "INSERT INTO classroom (id, tenant_id, name, capacity) VALUES ($1, $2, $3, $4)",
+                classroom_id,
+                tenant_id,
+                "冒烟教室",
+                30,
+            )
+            await conn.execute(
+                "INSERT INTO class "
+                "(id, tenant_id, course_id, teacher_id, classroom_id, name, capacity, status) "
+                "VALUES ($1, $2, $3, $4, $5, $6, $7, 'active')",
+                class_id,
+                tenant_id,
+                course_id,
+                teacher_id,
+                classroom_id,
+                class_name,
+                20,
             )
             await conn.execute(
                 "INSERT INTO staff_account "
@@ -233,6 +271,10 @@ async def seed() -> dict:
         "platform_pass": platform_pass,
         "expired_tenant_id": str(expired_tenant_id),
         "expired_name": expired_name,
+        "course_id": str(course_id),
+        "course_name": course_name,
+        "class_id": str(class_id),
+        "class_name": class_name,
     }
 
 
@@ -293,6 +335,12 @@ def _submit_create(dialog: Page) -> None:
     dialog.get_by_role("button", name="创建").click()
 
 
+def _pick_option(page: Page, text: str) -> None:
+    """在已展开的 el-select 下拉里点选一项（按可见文本）。"""
+
+    page.locator(".el-select-dropdown__item").filter(has_text=text).first.click()
+
+
 def run(creds: dict) -> None:
     def track(page: Page) -> None:
         page.on("console", lambda m: CONSOLE_ERRORS.append(m.text) if m.type == "error" else None)
@@ -348,8 +396,16 @@ def run(creds: dict) -> None:
 
             _run_async(set_end_date(creds["tenant_id"], FUTURE))
             admin.goto(f"{FRONTEND}/dashboard")
-            expect(admin.locator(".layout__banner")).to_have_count(0)
-            check("场景5: 续费(改回未来)后横幅消失", True)
+            banner2 = admin.locator(".layout__banner")
+            banner2.wait_for(state="visible", timeout=8000)
+            check(
+                "场景5: 续费(改回未来)后横幅常显，文案「距到期还有 N 天」",
+                "距到期还有 30 天" in banner2.inner_text(),
+            )
+            check(
+                "场景5: 续费后横幅为次要色(info)不制造焦虑",
+                "el-alert--info" in (banner2.get_attribute("class") or ""),
+            )
 
             dialog = _open_create_dialog(admin)
             recover_name = "冒烟恢复员工"
@@ -494,6 +550,93 @@ def run(creds: dict) -> None:
             admin2.get_by_text("403 · 无权访问").wait_for(state="visible", timeout=10000)
             check("场景7: 机构 admin 直输 /platform/tenants 被拦 403", "/403" in admin2.url)
             admin2_ctx.close()
+
+            # ---------------------------------------------------- 场景 8：047 课时账本 + 退费强确认
+            admin3_ctx = browser.new_context()
+            admin3 = admin3_ctx.new_page()
+            track(admin3)
+            _login(admin3, creds["admin_phone"], creds["admin_pass"])
+
+            # 新建账本学生（经 UI，避免与 7.3 限额场景的学生数撞车）
+            ledger_student_name = f"冒烟账本学生-{uuid4().hex[:6]}"
+            admin3.goto(f"{FRONTEND}/archive/students")
+            admin3.get_by_role("button", name="新建学生").click()
+            sdlg = admin3.locator(".el-dialog:visible", has_text="新建学生")
+            sdlg.wait_for(state="visible", timeout=8000)
+            sdlg.get_by_placeholder("必填", exact=True).fill(ledger_student_name)
+            sdlg.get_by_role("button", name="保存").click()
+            admin3.get_by_text("已新建").wait_for(state="visible", timeout=8000)
+
+            # 学生列表「账本」入口跳转
+            srow = admin3.locator("tr").filter(has_text=ledger_student_name)
+            srow.first.wait_for(state="visible", timeout=8000)
+            srow.first.get_by_role("button", name="账本").click()
+            admin3.wait_for_url("**/ledger", timeout=15000)
+            check("场景8: 学生列表「账本」入口跳转账本页", "/ledger" in admin3.url)
+
+            balance_num = admin3.locator(".ledger__balance-num")
+            balance_num.wait_for(state="visible", timeout=8000)
+            check("场景8: 初始余额为 0", balance_num.inner_text().strip() == "0")
+
+            # 购课登记 → 余额 0→10
+            admin3.get_by_role("button", name="购课登记").click()
+            pdialog = admin3.locator(".el-dialog:visible", has_text="购课登记")
+            pdialog.wait_for(state="visible", timeout=8000)
+            pdialog.locator(".el-select__wrapper").first.click()
+            _pick_option(admin3, creds["course_name"])
+            pdialog.get_by_role("button", name="确认购课").click()
+            admin3.get_by_text("已登记购课").wait_for(state="visible", timeout=8000)
+            expect(balance_num).to_have_text("10", timeout=8000)
+            check("场景8: 购课登记后余额 0→10", True)
+            check(
+                "场景8: 课时包「10次卡」出现",
+                "10次卡" in admin3.locator(".ledger__package-name").first.inner_text(),
+            )
+
+            # 退费：第一步表单 → 第二步红色强确认
+            admin3.get_by_role("button", name="退费").click()
+            rdialog = admin3.locator(".el-dialog:visible", has_text="退费")
+            rdialog.wait_for(state="visible", timeout=8000)
+            rdialog.locator(".el-select__wrapper").first.click()
+            _pick_option(admin3, "10次卡")
+            rdialog.get_by_placeholder("退费原因必填").fill("冒烟退费验证")
+            rdialog.get_by_role("button", name="下一步：确认退费").click()
+
+            cdialog = admin3.locator(".el-dialog:visible", has_text="退费确认")
+            cdialog.wait_for(state="visible", timeout=8000)
+            confirm_text = cdialog.inner_text()
+            check("场景8: 强确认显示学生姓名", ledger_student_name in confirm_text)
+            check("场景8: 强确认显示课时包名", "10次卡" in confirm_text)
+            nums = cdialog.locator(".refund-confirm__num")
+            check("场景8: 强确认显示退课时数 1", nums.nth(0).inner_text().strip() == "1")
+            check("场景8: 强确认显示退费金额 ¥0", nums.nth(1).inner_text().strip() == "¥0")
+            check("场景8: 强确认按钮文案为「确认退费」", "确认退费" in confirm_text)
+            cdialog.get_by_role("button", name="确认退费").click()
+            admin3.get_by_text("已退费").wait_for(state="visible", timeout=8000)
+
+            expect(balance_num).to_have_text("9", timeout=8000)
+            check("场景8: 退费后余额 10→9", True)
+            admin3.get_by_role("cell", name="退费").first.wait_for(state="visible", timeout=8000)
+            check("场景8: 流水表出现「退费」类型行", True)
+
+            # ---------------------------------------------------------------- 场景 9：047 班级结课
+            admin3.goto(f"{FRONTEND}/classes")
+            crow = admin3.locator("tr").filter(has_text=creds["class_name"])
+            crow.first.wait_for(state="visible", timeout=8000)
+            crow.first.get_by_role("button", name="结课").click()
+            mbox = admin3.locator(".el-message-box")
+            mbox.wait_for(state="visible", timeout=8000)
+            check("场景9: 结课二次确认弹窗出现", "结课确认" in mbox.inner_text())
+            mbox.get_by_role("button", name="确认结课").click()
+            crow2 = admin3.locator("tr").filter(has_text=creds["class_name"])
+            expect(crow2.first.locator(".el-tag").get_by_text("已结课")).to_have_count(1)
+            check("场景9: 结课后状态 tag 变「已结课」（灰）", True)
+            check(
+                "场景9: 结课后出现「恢复」入口",
+                crow2.first.get_by_role("button", name="恢复").count() == 1,
+            )
+
+            admin3_ctx.close()
         finally:
             browser.close()
 

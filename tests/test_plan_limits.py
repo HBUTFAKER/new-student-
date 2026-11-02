@@ -2,7 +2,7 @@
 
 全部在真实 PostgreSQL 上跑（owner 连接跨租户 / 通知引擎走 owner session）。口径：
 
-* 学生数：在档（status='active'）学生数，归档/停用不占额、归档腾名额；只拦「新增」，
+* 学生数（047 口径）：active + archived 全计，归档不腾名额（只排除 suspended）；只拦「新增」，
   编辑/转班不拦；
 * 消息量：自然月 period=YYYY-MM、metric=messages；每个外发通道每成功发一条 = 1（多家长
   按实发条数）；失败不计、站内信（in_app）不占额；
@@ -165,7 +165,9 @@ async def clean_slate(owner_engine):
 # ---------------------------------------------------------------- 学生限额
 
 
-async def test_student_limit_blocks_fourth_archive_frees_slot(client, owner_engine) -> None:
+async def test_student_limit_archive_still_occupies_slot(client, owner_engine) -> None:
+    """047 拍板：归档学生仍占名额（推翻 042「归档腾名额」），建满后归档不腾名额。"""
+
     admin = await seed_staff(
         owner_engine, tenant_name=f"学生限额-{uuid4().hex[:8]}", role="admin", phone=unique_phone()
     )
@@ -182,13 +184,20 @@ async def test_student_limit_blocks_fourth_archive_frees_slot(client, owner_engi
     assert blocked.status_code == 402
     assert blocked.json()["error"]["code"] == "PLAN_LIMIT_EXCEEDED"
 
-    # 归档 1 人腾名额后再建成功
+    # 归档 1 人后仍超限：归档不再腾名额
     archived = await client.patch(
         f"/students/{created_ids[0]}", json={"status": "archived"}, headers=headers
     )
     assert archived.status_code == 200
-    revived = await client.post("/students", json={"name": "s5"}, headers=headers)
-    assert revived.status_code == 201
+    still_blocked = await client.post("/students", json={"name": "s5"}, headers=headers)
+    assert still_blocked.status_code == 402
+    assert still_blocked.json()["error"]["code"] == "PLAN_LIMIT_EXCEEDED"
+
+    # /me/subscription 的 used 仍把归档学生计入（active + archived 全计）
+    sub = await client.get("/me/subscription", headers=headers)
+    assert sub.status_code == 200
+    assert sub.json()["students_used"] == 3
+    assert sub.json()["students_max"] == 3
 
 
 async def test_bulk_import_whole_batch_rejected(client, owner_engine) -> None:
