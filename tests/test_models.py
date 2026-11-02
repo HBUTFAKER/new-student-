@@ -18,8 +18,8 @@ WORKER_QUEUE_INDEXES = {"ix_notification_status_next_retry_at"}
 def test_table_layers_match_dictionary() -> None:
     assert len(PLATFORM_TABLES) == 4
     assert len(WECHAT_TABLES) == 3
-    assert len(BUSINESS_TABLES) == 21
-    assert len(set(BUSINESS_TABLES)) == 21
+    assert len(BUSINESS_TABLES) == 22
+    assert len(set(BUSINESS_TABLES)) == 22
     assert set(Base.metadata.tables) == {*PLATFORM_TABLES, *WECHAT_TABLES, *BUSINESS_TABLES}
 
 
@@ -113,15 +113,17 @@ def test_attendance_unique_key_is_the_idempotency_key() -> None:
 def test_no_table_has_updated_at() -> None:
     """The dictionary defines no updated_at column; nothing may add one silently.
 
-    三处已登记例外：
+    四处已登记例外：
 
     - ``org_config``：3.5 的 US-217「改配置要留痕」（迁移 ``0010``），两列
       ``updated_by`` / ``updated_at``；
     - ``subscribe_auth``：5.4 的订阅授权收集（迁移 ``0011``），``available_count``
       额度列 + ``updated_at`` 记录最近一次授权动作，6.2 发消息按它判断新鲜度；
-    - ``notification``：6.1 通知中心（迁移 ``0013``），``updated_at`` 追踪重试时间。
+    - ``notification``：6.1 通知中心（迁移 ``0013``），``updated_at`` 追踪重试时间；
+    - ``lesson_feedback``：048 课堂反馈（迁移 ``0016``），``updated_at`` 记录最后一次
+      覆盖更新的时间（批量 upsert 覆盖写）。
 
-    只放行这三张表，别的表再加就红。
+    只放行这四张表，别的表再加就红。
     """
 
     for table_name in ALL_TABLES:
@@ -136,6 +138,10 @@ def test_no_table_has_updated_at() -> None:
         if table_name == "notification":
             columns = set(Base.metadata.tables[table_name].c.keys())
             assert {"updated_at", "next_retry_at", "attempts"} <= columns
+            continue
+        if table_name == "lesson_feedback":
+            columns = set(Base.metadata.tables[table_name].c.keys())
+            assert {"content", "updated_at"} <= columns
             continue
         assert "updated_at" not in Base.metadata.tables[table_name].c, table_name
 

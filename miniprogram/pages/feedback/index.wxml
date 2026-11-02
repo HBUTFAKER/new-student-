@@ -1,0 +1,40 @@
+<view class="page feedback">
+  <view class="feedback__head">
+    <view class="feedback__title">课堂反馈</view>
+    <view class="muted feedback__meta" wx:if="{{total}}">共 {{total}} 条 · 下拉可刷新</view>
+  </view>
+
+  <view wx:if="{{loading}}" class="card feedback__skeleton">
+    <view class="feedback__bar"></view>
+    <view class="feedback__bar feedback__bar--short"></view>
+  </view>
+
+  <view wx:elif="{{error}}" class="card">
+    <view class="error-box feedback__error">{{error}}</view>
+    <button wx:if="{{errorAction === 'switch'}}" class="btn feedback__retry" bindtap="goSwitch">
+      重新选择孩子
+    </button>
+    <button wx:else class="btn btn--ghost feedback__retry" bindtap="onRetry">重新加载</button>
+  </view>
+
+  <view wx:elif="{{items.length === 0}}" class="card feedback__empty">
+    <view class="feedback__empty-title">还没有课堂反馈</view>
+    <view class="muted feedback__empty-tip">老师上完课后会在这里记录反馈</view>
+  </view>
+
+  <block wx:else>
+    <view class="card feedback-item" wx:for="{{items}}" wx:key="key">
+      <view class="feedback-item__top">
+        <view class="feedback-item__course">{{item.course_name || '课堂反馈'}}</view>
+        <view class="muted feedback-item__date">{{item.dateText}}</view>
+      </view>
+      <view class="muted feedback-item__meta">
+        {{item.class_name}}<text wx:if="{{item.teacher_name}}"> · {{item.teacher_name}}</text>
+      </view>
+      <view class="feedback-item__content">{{item.content}}</view>
+    </view>
+
+    <view wx:if="{{loadingMore}}" class="muted feedback__more">加载中…</view>
+    <view wx:elif="{{!hasMore}}" class="muted feedback__more">没有更多了</view>
+  </block>
+</view>

@@ -5,6 +5,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { listClassrooms, listTeachers } from '@/api/archive'
 import { getAttendance } from '@/api/attendance'
 import { listClasses, listClassStudents } from '@/api/course'
+import { getLessonFeedback, putLessonFeedback } from '@/api/feedback'
 import { ApiError } from '@/api/http'
 import { createLesson, listAllLessons, patchLesson } from '@/api/lesson'
 import { createMakeup } from '@/api/trade'
@@ -460,6 +461,72 @@ const detailLesson = ref<Lesson | null>(null)
 function openDetail(lesson: Lesson): void {
   detailLesson.value = lesson
   detailVisible.value = true
+  void loadFeedback()
+}
+
+// ---------------------------------------------------------------- 课后反馈（048）
+
+interface FeedbackRowView {
+  student_id: string
+  student_name: string
+  content: string
+}
+
+const feedbackRows = ref<FeedbackRowView[]>([])
+const feedbackLoading = ref(false)
+const feedbackEditVisible = ref(false)
+const feedbackEditingStudent = ref<FeedbackRowView | null>(null)
+const feedbackDraft = ref('')
+const feedbackSubmitting = ref(false)
+
+async function loadFeedback(): Promise<void> {
+  if (!detailLesson.value) return
+  feedbackLoading.value = true
+  try {
+    const [roster, feedback] = await Promise.all([
+      listClassStudents(detailLesson.value.class_id),
+      getLessonFeedback(detailLesson.value.id),
+    ])
+    const feedbackMap = new Map(feedback.items.map((item) => [item.student_id, item.content]))
+    feedbackRows.value = roster.items.map((student) => ({
+      student_id: student.student_id,
+      student_name: student.student_name,
+      content: feedbackMap.get(student.student_id) ?? '',
+    }))
+  } catch (error) {
+    feedbackRows.value = []
+    ElMessage.error(error instanceof ApiError ? error.message : '反馈加载失败')
+  } finally {
+    feedbackLoading.value = false
+  }
+}
+
+function openFeedbackEdit(student: FeedbackRowView): void {
+  feedbackEditingStudent.value = student
+  feedbackDraft.value = student.content
+  feedbackEditVisible.value = true
+}
+
+async function submitFeedback(): Promise<void> {
+  if (!detailLesson.value || !feedbackEditingStudent.value) return
+  const content = feedbackDraft.value.trim()
+  if (!content) {
+    ElMessage.warning('反馈内容不能为空')
+    return
+  }
+  feedbackSubmitting.value = true
+  try {
+    await putLessonFeedback(detailLesson.value.id, [
+      { student_id: feedbackEditingStudent.value.student_id, content },
+    ])
+    ElMessage.success('已保存反馈')
+    feedbackEditVisible.value = false
+    await loadFeedback()
+  } catch (error) {
+    ElMessage.error(error instanceof ApiError ? error.message : '反馈保存失败')
+  } finally {
+    feedbackSubmitting.value = false
+  }
 }
 
 const editorVisible = ref(false)
@@ -849,6 +916,25 @@ onMounted(() => {
         </el-descriptions-item>
       </el-descriptions>
 
+      <el-divider content-position="left">课后反馈</el-divider>
+      <div v-loading="feedbackLoading" class="feedback">
+        <div v-for="student in feedbackRows" :key="student.student_id" class="feedback__row">
+          <div class="feedback__info">
+            <span class="feedback__name">{{ student.student_name }}</span>
+            <span v-if="student.content" class="feedback__summary">{{ student.content }}</span>
+            <el-tag v-if="student.content" size="small" type="primary" effect="plain">
+              已反馈
+            </el-tag>
+          </div>
+          <el-button link type="primary" @click="openFeedbackEdit(student)">
+            {{ student.content ? '编辑' : '填写' }}
+          </el-button>
+        </div>
+        <div v-if="feedbackRows.length === 0 && !feedbackLoading" class="feedback__empty">
+          该班级还没有学员
+        </div>
+      </div>
+
       <template #footer>
         <el-button @click="detailVisible = false">关闭</el-button>
         <el-button
@@ -874,6 +960,28 @@ onMounted(() => {
           @click="detailLesson && cancelLesson(detailLesson)"
         >
           取消课次
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="feedbackEditVisible" title="填写课后反馈" width="480px">
+      <div v-if="feedbackEditingStudent" class="feedback-edit">
+        <div class="feedback-edit__name">
+          学生：<strong>{{ feedbackEditingStudent.student_name }}</strong>
+        </div>
+        <el-input
+          v-model="feedbackDraft"
+          type="textarea"
+          :rows="6"
+          maxlength="2000"
+          show-word-limit
+          placeholder="今天讲了什么、孩子表现如何（1~2000 字）"
+        />
+      </div>
+      <template #footer>
+        <el-button @click="feedbackEditVisible = false">取消</el-button>
+        <el-button type="primary" :loading="feedbackSubmitting" @click="submitFeedback">
+          保存
         </el-button>
       </template>
     </el-dialog>
@@ -1262,6 +1370,57 @@ onMounted(() => {
   margin-top: 4px;
   font-size: 12px;
   color: var(--el-text-color-secondary);
+}
+
+.feedback {
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.feedback__row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+
+.feedback__row:last-child {
+  border-bottom: none;
+}
+
+.feedback__info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.feedback__name {
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+.feedback__summary {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.feedback__empty {
+  padding: 12px 0;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
+.feedback-edit__name {
+  margin-bottom: 12px;
+  color: var(--el-text-color-primary);
 }
 
 @keyframes tt-pulse {

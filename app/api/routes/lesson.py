@@ -13,9 +13,11 @@ from sqlalchemy import Row
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import TenantDbSession
-from app.api.permissions import OfficeUser
+from app.api.permissions import OfficeUser, TeacherOrOffice
+from app.core.auth import Principal
 from app.core.errors import AppError
 from app.models.schedule import Lesson
+from app.schemas.feedback import FeedbackList, FeedbackRow, FeedbackUpsertRequest
 from app.schemas.lesson import (
     LessonCreate,
     LessonGenerate,
@@ -27,6 +29,7 @@ from app.schemas.lesson import (
     MakeupLessonOut,
 )
 from app.services.attendance import schedule_makeup
+from app.services.feedback import FeedbackWrite, list_lesson_feedback, upsert_feedback
 from app.services.ledger import BUSINESS_TZ
 from app.services.lesson import (
     create_lesson,
@@ -158,3 +161,64 @@ async def schedule_makeup_endpoint(
         target_lesson_id=seat.lesson_id,
         status=seat.status,
     )
+
+
+def _teacher_scope(principal: Principal) -> UUID | None:
+    """老师的任教身份；教务/管理员返回 None（不收紧，任意课次可写）。"""
+
+    return principal.teacher_id if principal.role == "teacher" else None
+
+
+async def _feedback_list(db, lesson_id: UUID, teacher_id: UUID | None) -> FeedbackList:
+    rows = await list_lesson_feedback(db, lesson_id=lesson_id, teacher_id=teacher_id)
+    return FeedbackList(
+        lesson_id=lesson_id,
+        items=[
+            FeedbackRow(
+                student_id=feedback.student_id,
+                student_name=name,
+                teacher_id=feedback.teacher_id,
+                content=feedback.content,
+                updated_at=feedback.updated_at,
+            )
+            for feedback, name in rows
+        ],
+        total=len(rows),
+    )
+
+
+@router.put(
+    "/lessons/{lesson_id}/feedback",
+    response_model=FeedbackList,
+    summary="课后反馈（批量 upsert，任课老师/教务/管理员）",
+)
+async def put_feedback(
+    lesson_id: UUID,
+    payload: FeedbackUpsertRequest,
+    db: TenantDbSession,
+    principal: TeacherOrOffice,
+) -> FeedbackList:
+    await upsert_feedback(
+        db,
+        tenant_id=principal.tenant_id,
+        lesson_id=lesson_id,
+        operator_teacher_id=_teacher_scope(principal),
+        items=[
+            FeedbackWrite(student_id=item.student_id, content=item.content)
+            for item in payload.items
+        ],
+    )
+    return await _feedback_list(db, lesson_id, _teacher_scope(principal))
+
+
+@router.get(
+    "/lessons/{lesson_id}/feedback",
+    response_model=FeedbackList,
+    summary="某课次课后反馈",
+)
+async def get_feedback(
+    lesson_id: UUID,
+    db: TenantDbSession,
+    principal: TeacherOrOffice,
+) -> FeedbackList:
+    return await _feedback_list(db, lesson_id, _teacher_scope(principal))

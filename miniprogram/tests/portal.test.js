@@ -171,6 +171,23 @@ test('decoratePackage 补到期文案', function () {
   assert.equal(soon.expiresText, '2026-12-01')
 })
 
+test('decorateFeedback 补课次日期文案', function () {
+  var row = portal.decorateFeedback({
+    lesson_id: 'a',
+    lesson_date: '2026-11-16T19:00:00+08:00',
+    class_name: '冲刺A班',
+    course_name: '少儿编程',
+    teacher_name: '王老师',
+    content: '今天很认真',
+    created_at: '2026-11-16T20:00:00+08:00',
+  })
+  assert.equal(row.dateText, '11-16 19:00')
+  assert.equal(row.class_name, '冲刺A班')
+  assert.equal(row.course_name, '少儿编程')
+  assert.equal(row.teacher_name, '王老师')
+  assert.equal(row.content, '今天很认真')
+})
+
 test('balanceTone 负数给红字提示，正数不给', function () {
   var negative = portal.balanceTone(-3)
   assert.equal(negative.negative, true)

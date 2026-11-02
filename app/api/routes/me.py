@@ -14,6 +14,7 @@ from app.core.auth import Principal
 from app.core.config import get_settings
 from app.core.errors import AppError
 from app.db.tenant import tenant_context
+from app.schemas.feedback import ChildFeedbackItem, ChildFeedbackList
 from app.schemas.ledger import LedgerType
 from app.schemas.me import (
     ActiveStudentRequest,
@@ -42,6 +43,7 @@ from app.schemas.me import (
 from app.schemas.subscription import SubscriptionStatusResponse
 from app.services.auth import switch_active_student, wechat_bindings
 from app.services.bindings import redeem_invite_code
+from app.services.feedback import child_feedback
 from app.services.notification import (
     mark_read,
     message_page,
@@ -461,4 +463,53 @@ async def my_subscription(principal: CurrentPrincipal) -> SubscriptionStatusResp
         students_max=limits.max_students if limits else 0,
         messages_used=messages_used,
         messages_max=limits.max_messages if limits else 0,
+    )
+
+
+@router.get(
+    "/children/{student_id}/feedback",
+    response_model=ChildFeedbackList,
+    summary="孩子课堂反馈（分页倒序）",
+)
+async def my_child_feedback(
+    student_id: UUID,
+    db: DbSession,
+    principal: CurrentPrincipal,
+    page: Page = 1,
+    page_size: PageSize = 20,
+) -> ChildFeedbackList:
+    """048：某孩子的课后反馈，时间倒序。
+
+    家长绑定校验与 ``child_session`` 同源，但按 path 的 ``student_id`` 定位（不要求
+    等于当前激活孩子）：非家长 403；孩子不在实时绑定集合里 404（不泄露存在性）。
+    """
+
+    if principal.role != "parent" or principal.subject_id is None:
+        raise AppError(403, "OUT_OF_SCOPE", "仅家长可访问")
+
+    bindings = await wechat_bindings(db, principal.subject_id)
+    binding = next((item for item in bindings if item.student_id == student_id), None)
+    if binding is None:
+        raise AppError(404, "STUDENT_NOT_FOUND", "孩子不存在")
+
+    await db.rollback()
+    async with tenant_context(db, binding.tenant_id):
+        items, total = await child_feedback(
+            db, student_id=student_id, page=page, page_size=page_size
+        )
+
+    return ChildFeedbackList(
+        items=[
+            ChildFeedbackItem(
+                lesson_id=item["lesson_id"],
+                lesson_date=item["lesson_date"],
+                class_name=item["class_name"],
+                course_name=item["course_name"],
+                teacher_name=item["teacher_name"],
+                content=item["content"],
+                created_at=item["created_at"],
+            )
+            for item in items
+        ],
+        total=total,
     )

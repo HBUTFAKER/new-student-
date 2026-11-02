@@ -821,27 +821,7 @@ async def test_teacher_class_boundary(client: httpx.AsyncClient, matrix_seed: Ma
     assert resp.status_code == 404, f"跨租户应 404，实际 {resp.status_code}"
 
 
-# ----------------------------------------------------------------- 矩阵 vs 实现冲突（口径 1）
-
-
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "冲突：02 矩阵标一期「课时包定义 增/改/删（US-205）」，实现无独立 CRUD 接口"
-        "（课时包随购课快照生成，见 create_purchase）"
-    ),
-)
-async def test_course_package_definition_crud(
-    client: httpx.AsyncClient, matrix_seed: MatrixSeed
-) -> None:
-    """矩阵预期存在课时包定义 CRUD，实现未提供 → 记为冲突，交发令部裁决。"""
-
-    resp = await client.post(
-        "/course-packages",
-        json={"name": "10次卡", "total_lessons": 10, "price": "1000.00", "valid_months": 6},
-        headers=_bearer(matrix_seed.admin_a),
-    )
-    assert resp.status_code == 201
+# ----------------------------------------------------------------- 课时包定义口径（047 定版）
 
 
 async def test_course_package_no_template_crud_snapshots_on_purchase(

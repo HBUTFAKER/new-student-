@@ -14,6 +14,7 @@ from app.models.archive import (
 )
 from app.models.attendance import Attendance
 from app.models.course import Class, ClassEnrollment, Course, CoursePackage
+from app.models.feedback import LessonFeedback
 from app.models.holiday import TenantHoliday
 from app.models.ledger import LessonLedger
 from app.models.notification import InAppMessage
@@ -62,6 +63,7 @@ BUSINESS_TABLES: tuple[str, ...] = (
     "tenant_holiday",
     "in_app_message",
     "notification",
+    "lesson_feedback",
 )
 
 #: Tables protected by RLS + FORCE RLS: all tenant-scoped business data, plus the
@@ -85,6 +87,7 @@ __all__ = [
     "Notification",
     "InviteCode",
     "Lesson",
+    "LessonFeedback",
     "LessonLedger",
     "OrgConfig",
     "Parent",

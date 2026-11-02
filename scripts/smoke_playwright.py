@@ -1,4 +1,4 @@
-"""端到端冒烟脚本（040 补账 + 7.2 到期降级 + 047 课时账本/退费强确认/结课）。
+"""端到端冒烟脚本（040 补账 + 7.2 到期降级 + 047 课时账本/退费强确认/结课 + 048 课后反馈）。
 
 前置：本地 PG（localhost:55432）+ uvicorn 真后端（:8000）+ vite dev（:5173）已启动。
 运行：``.venv/Scripts/python.exe scripts/smoke_playwright.py``（cwd=项目根）。
@@ -16,6 +16,7 @@
   8. 047：学生列表「账本」入口 → 购课登记余额 0→10 → 退费两步强确认四要素完整
      → 确认后余额 10→9 且流水出现「退费」行
   9. 047：班级「结课」二次确认 → 状态 tag 变「已结课」（灰）且出现「恢复」入口
+  10. 048：课次详情「课后反馈」→ 填写保存 → 重进内容正确显示 → 编辑更新为最新
 
 每次运行生成唯一手机号 + 独立租户，脚本幂等，不污染既有数据。
 """
@@ -25,7 +26,7 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import sys
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -95,6 +96,14 @@ async def seed() -> dict:
     class_id = uuid4()
     course_name = f"冒烟课程-{uuid4().hex[:6]}"
     class_name = f"冒烟结课班-{uuid4().hex[:6]}"
+
+    # 048 课堂反馈场景：独立 active 班 + 学员 + 本周课次（别用结课班，避免被场景 9 结课污染）。
+    fb_class_id = uuid4()
+    fb_class_name = f"冒烟反馈班-{uuid4().hex[:6]}"
+    fb_student_ids = [uuid4(), uuid4()]
+    fb_lesson_id = uuid4()
+    fb_start = datetime.combine(TODAY, time(9, 0), tzinfo=UTC8)
+    fb_end = datetime.combine(TODAY, time(10, 0), tzinfo=UTC8)
 
     # 7.4 平台后台：platform_admin 账号 + 一个过期机构（用于续费场景）
     platform_phone = _gen_phone()
@@ -166,6 +175,48 @@ async def seed() -> dict:
                 classroom_id,
                 class_name,
                 20,
+            )
+            # ---- 048 课堂反馈场景：反馈班 + 学员 + 本周课次 ----
+            await conn.execute(
+                "INSERT INTO class "
+                "(id, tenant_id, course_id, teacher_id, classroom_id, name, capacity, status) "
+                "VALUES ($1, $2, $3, $4, $5, $6, $7, 'active')",
+                fb_class_id,
+                tenant_id,
+                course_id,
+                teacher_id,
+                classroom_id,
+                fb_class_name,
+                20,
+            )
+            for idx, sid in enumerate(fb_student_ids):
+                await conn.execute(
+                    "INSERT INTO student (id, tenant_id, name, status) "
+                    "VALUES ($1, $2, $3, 'active')",
+                    sid,
+                    tenant_id,
+                    f"冒烟反馈学生{idx + 1}",
+                )
+                await conn.execute(
+                    "INSERT INTO class_enrollment (id, tenant_id, class_id, student_id, joined_at) "
+                    "VALUES ($1, $2, $3, $4, $5)",
+                    uuid4(),
+                    tenant_id,
+                    fb_class_id,
+                    sid,
+                    TODAY,
+                )
+            await conn.execute(
+                "INSERT INTO lesson "
+                "(id, tenant_id, class_id, classroom_id, teacher_id, start_at, end_at, status) "
+                "VALUES ($1, $2, $3, $4, $5, $6, $7, 'normal')",
+                fb_lesson_id,
+                tenant_id,
+                fb_class_id,
+                classroom_id,
+                teacher_id,
+                fb_start,
+                fb_end,
             )
             await conn.execute(
                 "INSERT INTO staff_account "
@@ -275,6 +326,8 @@ async def seed() -> dict:
         "course_name": course_name,
         "class_id": str(class_id),
         "class_name": class_name,
+        "fb_class_name": fb_class_name,
+        "fb_student_names": ["冒烟反馈学生1", "冒烟反馈学生2"],
     }
 
 
@@ -635,6 +688,62 @@ def run(creds: dict) -> None:
                 "场景9: 结课后出现「恢复」入口",
                 crow2.first.get_by_role("button", name="恢复").count() == 1,
             )
+
+            # ---------------------------------------------------- 场景 10：048 课后反馈
+            admin3.goto(f"{FRONTEND}/scheduling/timetable")
+            fb_block = admin3.locator(".timetable__block").filter(has_text=creds["fb_class_name"])
+            fb_block.first.wait_for(state="visible", timeout=10000)
+            fb_block.first.click()
+
+            fb_dialog = admin3.locator(".el-dialog:visible", has_text="课次详情")
+            fb_dialog.wait_for(state="visible", timeout=8000)
+            check("场景10: 课次详情弹窗出现「课后反馈」区块", "课后反馈" in fb_dialog.inner_text())
+
+            fb_rows = fb_dialog.locator(".feedback__row")
+            expect(fb_rows).to_have_count(2, timeout=8000)
+            check("场景10: 反馈列表显示班级 2 名学员", True)
+
+            # 学生 1 首写：填写 → 保存 → 「已反馈」tag
+            fb_name1 = creds["fb_student_names"][0]
+            row1 = fb_dialog.locator(".feedback__row").filter(has_text=fb_name1)
+            row1.get_by_role("button", name="填写").click()
+            edit_dialog = admin3.locator(".el-dialog:visible", has_text="填写课后反馈")
+            edit_dialog.wait_for(state="visible", timeout=8000)
+            check("场景10: 填写反馈弹窗出现", True)
+            edit_dialog.locator("textarea").fill(
+                "今天讲了方程式的解法，小明表现很积极，主动上台解题"
+            )
+            edit_dialog.get_by_role("button", name="保存").click()
+            admin3.get_by_text("已保存反馈").wait_for(state="visible", timeout=8000)
+            check("场景10: 保存反馈成功提示", True)
+            expect(row1.locator(".el-tag").get_by_text("已反馈")).to_have_count(1, timeout=8000)
+            check("场景10: 保存后学生行出现「已反馈」tag", True)
+
+            # 重进详情 → 内容正确显示 + 可编辑
+            fb_dialog.get_by_role("button", name="关闭").click()
+            admin3.locator(".timetable__block").filter(
+                has_text=creds["fb_class_name"]
+            ).first.click()
+            fb_dialog2 = admin3.locator(".el-dialog:visible", has_text="课次详情")
+            fb_dialog2.wait_for(state="visible", timeout=8000)
+            row1_re = fb_dialog2.locator(".feedback__row").filter(has_text=fb_name1)
+            expect(row1_re.locator(".el-tag").get_by_text("已反馈")).to_have_count(1, timeout=8000)
+            check("场景10: 重进详情内容正确显示", "今天讲了方程式的解法" in row1_re.inner_text())
+
+            row1_re.get_by_role("button", name="编辑").click()
+            edit_dialog2 = admin3.locator(".el-dialog:visible", has_text="填写课后反馈")
+            edit_dialog2.wait_for(state="visible", timeout=8000)
+            check(
+                "场景10: 编辑弹窗回显已有反馈",
+                "今天讲了方程式的解法" in edit_dialog2.locator("textarea").input_value(),
+            )
+            edit_dialog2.locator("textarea").fill(
+                "今天讲了方程式与几何，小明已经完全掌握，进步很大"
+            )
+            edit_dialog2.get_by_role("button", name="保存").click()
+            admin3.get_by_text("已保存反馈").wait_for(state="visible", timeout=8000)
+            expect(row1_re.get_by_text("今天讲了方程式与几何")).to_have_count(1, timeout=8000)
+            check("场景10: 编辑后内容更新为最新", True)
 
             admin3_ctx.close()
         finally:

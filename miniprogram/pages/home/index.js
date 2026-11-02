@@ -32,6 +32,12 @@ var ENTRIES = [
     desc: '每一次增减课时的流水',
     url: '/pages/ledger/index',
   },
+  {
+    key: 'feedback',
+    title: '课堂反馈',
+    desc: '老师课后写的课堂小结',
+    url: '/pages/feedback/index',
+  },
 ]
 
 Page({

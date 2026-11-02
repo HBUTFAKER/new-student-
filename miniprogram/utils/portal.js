@@ -192,6 +192,13 @@ function decoratePackage(item, todayIso) {
   })
 }
 
+/** 课堂反馈（048）：课次日期按北京时间格式化，卡片显示日期 + 课程 + 老师 + 内容 */
+function decorateFeedback(item) {
+  return Object.assign({}, item, {
+    dateText: formatDateTime(item.lesson_date),
+  })
+}
+
 /** 余额展示：负数要给红色 + 欠课时提示，不裁剪成 0 */
 function balanceTone(total) {
   var value = typeof total === 'number' ? total : 0
@@ -233,6 +240,7 @@ module.exports = {
   nextPageState: nextPageState,
   isExpiringSoon: isExpiringSoon,
   decoratePackage: decoratePackage,
+  decorateFeedback: decorateFeedback,
   balanceTone: balanceTone,
   describePortalError: describePortalError,
 }

@@ -1,6 +1,6 @@
 """RLS 覆盖审计（7.5 任务二，进 CI 常跑）。
 
-业务层 21 张表 + ``subscribe_auth`` 必须全部启用 RLS 且至少一条 policy。
+业务层 22 张表 + ``subscribe_auth`` 必须全部启用 RLS 且至少一条 policy。
 逮到「有 tenant_id 却没 RLS」的表 = 洞（口径 2），立即红。
 
 白名单 = 平台层表：``tenant_subscription`` / ``usage_meter`` 有 tenant_id 但
