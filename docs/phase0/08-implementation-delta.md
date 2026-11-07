@@ -14,6 +14,31 @@
 
 ## §0 交接区（最新在最上面）
 
+### [049] 2026-11-07 · 一期收尾修复包（2 真 bug + 文档追平 + CI 补 job + 上线清单 + 架构债）· commit `ea364c8` `b819ceb` `4417df2` `3f800a4` `f57fb4f` `53b44df`（6 修复分提交）· CI `42348388811` 五 job 全绿
+
+**我改了什么**（零迁移零新表零加列、零接口语义变更、零重构；表数仍 29 / 业务 22；指令 5 分包本期未做）
+
+1. **修复 1（P0）Nginx 反代白名单漏 makeup-lessons**：`POST /makeup-lessons`（补课排期）是独立顶层前缀，但 `deploy/nginx.conf` 反代正则 + 顶部注释前缀清单 + `docs/deploy.md` 附录 A 三处都漏了它——生产环境该请求落入 SPA 回退、拿到 index.html 而非 JSON，补课排期静默失效。三处补齐（放 lessons 附近），其余前缀零改动。
+2. **修复 2（P0）真库测试配置缺口（"6 个 flaky"的真相）**：`build_engine()` 只在 `APP_ENV=test` 用 NullPool，`tests/conftest.py` 没强制 APP_ENV，按 README 的 `cp .env.example .env`（APP_ENV=local）跑真库测试会稳定挂 6 个用例（test_conflict×4 / test_ledger×1 / test_me_notifications×1）。CI 绿只因 ci.yml 显式设了 `APP_ENV=test`。**历史交接单把这 6 个定性为「Windows flaky」是错的**。修法：conftest 最顶部（任何 app.* 导入之前）`os.environ.setdefault("APP_ENV","test")`；08 全部 flaky 表述更正为「APP_ENV 配置缺口，049 已修复」（8 处）。红线：不动 build_engine 语义、不动 pytest-asyncio loop scope。
+3. **修复 3（P1）README 按现状重写**：状态行改一期已收官、表数 29（业务 22）、迁移补齐 0008~0016 一句话摘要、RLS 业务 22+subscribe_auth、测试总数 425 真库 + 87 小程序、目录树补齐 routes 全部文件、新增「本地跑真库测试」一节（`APP_ENV=test RUN_DB_TESTS=1 pytest` + 小程序 `node --test`）。
+4. **修复 4（P1）CI 补小程序单测 job**：ci.yml 新增 `miniprogram` job（checkout + setup-node 20 + `node --test miniprogram/tests/*.test.js`）。**030「CI 不加小程序 job」的裁决由本次更新推翻**——理由：当时「无测试」的前提已过时，现在已有 87 项纯逻辑单测。
+5. **修复 5（P2）小程序上线检查清单**：新增 `docs/miniprogram-launch-checklist.md`（可勾选），覆盖 config.js trial/release 域名、project.config.json 真实 appid（+ ALLOW_FAKE_WX_CODE 自动失效说明）、生产 env 检查项（WECHAT_APP_ID/APP_SECRET/WECHAT_STUB_MODE=false/WECHAT_SUBSCRIBE_TEMPLATES/wechat_mp_*/sms_provider）、扩容前必读（调度器单实例）四块，零代码改动。
+6. **修复 6（备忘）两条架构债记入 §4**：运行时超管连接（scheduler/worker 用 `MIGRATION_DATABASE_URL` owner 跨租户扫描的原因 + 多实例重复发通知 + 扩容前独立 worker + 分布式锁或 LISTEN/NOTIFY）、测试时长与并发敏感（425 项约 8 分钟，test_conflict 并发用例对事件循环/连接池敏感）。
+
+**验证**
+
+- 全量真库：原始 `.env`（APP_ENV=local）下 `RUN_DB_TESTS=1 pytest` **425 passed / 0 failed**（修复 2 后不再有那 6 个失败）。
+- 小程序 `node --test miniprogram/tests/*.test.js` 87 项全过；`ruff check` / `format --check` 全过；`uvicorn app.main:app` 启动正常、`/health` `/health/db` 200。
+- CI **五 job 全绿**（lint / test / web / docker-smoke / miniprogram，首次即过）。
+
+**给发令部的指令**
+
+- 补课排期 `POST /makeup-lessons` 生产反代已修复（三处齐）；纪律重申：新增顶层路由前缀必须同步 `deploy/nginx.conf` 正则 + 注释清单 + `docs/deploy.md` 附录 A。
+- 「6 个 Windows flaky」真身是 APP_ENV 配置缺口，已修复；真库测试稳定写法见 README「本地跑真库测试」。
+- 030「CI 不加小程序 job」裁决已推翻（已有 87 项纯逻辑单测）；小程序单测从此进 CI 常跑。
+- 指令 5（前端主包分包）本期确认**未做**（挂起二期）；微信/短信真实密钥、多实例改造、任何功能新增均未做。
+- 表数仍 29 / 业务 22、Alembic head 仍 `0016_lesson_feedback`，049 零迁移零新表零接口语义变更。
+
 ### [048] 2026-11-03 · 课堂反馈（一期收官步：老师课后写反馈 → 家长端查看）· commit `3d12e81` · CI `41513309094` 四 job 全绿
 
 **我改了什么**（本项目**第一个带迁移的步骤**；业务表 21→22，全库 28→29 张表，迁移 `0016`）
