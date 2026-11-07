@@ -134,3 +134,17 @@ jobs:
       - name: Stop containers
         if: always()
         run: docker compose down -v
+
+  miniprogram:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Run miniprogram tests
+        run: node --test miniprogram/tests/*.test.js
