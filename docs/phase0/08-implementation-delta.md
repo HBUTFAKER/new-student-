@@ -36,7 +36,7 @@
 
 **验证**
 
-- 后端全量 `RUN_DB_TESTS=1`：**419 passed + 6 既存 Windows flaky**（test_conflict×4 / test_ledger×1 / test_me_notifications×1，隔离重跑全过）；净 +4 真测试。
+- 后端全量 `RUN_DB_TESTS=1`：**419 passed + 6 例 APP_ENV 配置缺口**（test_conflict×4 / test_ledger×1 / test_me_notifications×1，049 已修复）；净 +4 真测试。
 - 前端 `vue-tsc --noEmit` 零错误 + `vite build` 零 error；小程序 `node --test` 21 passed；ruff check / format --check 全过。
 - 无新顶层路由前缀（`/lessons`、`/me` 均既有前缀，nginx 反代不用动）。
 
@@ -85,7 +85,7 @@
 
 **验证**
 
-- 后端全量 `RUN_DB_TESTS=1`：410 passed + 6 既存 Windows flaky（test_conflict×4 / test_ledger×1 / test_me_notifications×1，隔离重跑全过）+ 1 xfailed；净 +3 真测试（共 417 用例）。
+- 后端全量 `RUN_DB_TESTS=1`：410 passed + 6 例 APP_ENV 配置缺口（test_conflict×4 / test_ledger×1 / test_me_notifications×1，049 已修复）+ 1 xfailed；净 +3 真测试（共 417 用例）。
 - 前端 `vue-tsc --noEmit` 零错误 + `vite build` 零 error；ruff check / format --check 全过。
 - Playwright 冒烟 **42 断言全过 + 控制台 0 报错**。
 - 新前端文件 grep 无裸色值（仅引用令牌）；无新顶层路由前缀。
@@ -135,7 +135,7 @@
 
 `/health` `/auth` `/me` `/staff` `/admin` `/platform` `/students` `/parents` `/teachers` `/classrooms` `/bindings` `/invite-codes` `/courses` `/classes` `/schedule-rules` `/tenant-holidays` `/lessons` `/org-config` `/reports` `/purchases` `/ledger` `/refunds` `/transfers` `/docs` `/redoc` `/openapi.json`
 
-**本地 prod 冒烟全过**：compose config 校验 + nginx -t + 三服务起 + `/health/db` 200 + DB 5432 宿主连不上 + app_user 直查 `staff_account` 被 RLS 拒（0 行）而 owner 1 行 + init_platform_admin 幂等两遍（created→skipped）+ backup.sh 出 `PGDMP` dump。测试 407 passed + 6 既存 Windows flaky（隔离跑全过）+ 1 xfailed，CI Linux 零回归。
+**本地 prod 冒烟全过**：compose config 校验 + nginx -t + 三服务起 + `/health/db` 200 + DB 5432 宿主连不上 + app_user 直查 `staff_account` 被 RLS 拒（0 行）而 owner 1 行 + init_platform_admin 幂等两遍（created→skipped）+ backup.sh 出 `PGDMP` dump。测试 407 passed + 6 例 APP_ENV 配置缺口（049 已修复）+ 1 xfailed，CI Linux 零回归。
 
 **给发令部的指令**
 
@@ -231,7 +231,7 @@
 
 测试：`tests/test_plan_limits.py` 11 项真库——①学生限额（max=3 建 3 人、第 4 人 402、归档腾名额）②导入整批拒（剩余 2 导入 3 整批 402 文案带数字、剩余 5 导入 3 全成）③满员后编辑不拦 ④消息限额（max=2 发满后第 3 条外发全 skip、站内信照发、无 exhausted、last_error=PLAN_MESSAGE_LIMIT）⑤失败不计 ⑥站内信不计 ⑦多家长=实发条数 ⑧跨月重置（period 回拨上月恢复额度）⑨限额即时生效（改大立刻恢复，无缓存）⑩usage 接口数字一致 + registrar/teacher 403 ⑪`/me/subscription` 四字段。Playwright 冒烟（`scripts/smoke_playwright.py` 场景 6）：改库 `max_students=1`→建 1 人成功→1/1 黄条→第 2 人 402 文案→改大 100→成功→黄条消失，6 条断言、全程 0 条控制台报错（累计 16 断言全过）。
 
-**验证**：零迁移（alembic head 仍 `0015`）；全量真库 `374 → 385 passed`（净 +11 = test_plan_limits.py 11 项；6 个失败均为既存 Windows 事件循环 flaky——test_conflict×4 / test_ledger×1 / test_me_notifications×1，隔离跑即过、CI Linux 不受影响）；`ruff check`/`format --check` 全过；web `vue-tsc --noEmit && vite build` 过；Playwright 16 断言全过、0 控制台报错。
+**验证**：零迁移（alembic head 仍 `0015`）；全量真库 `374 → 385 passed`（净 +11 = test_plan_limits.py 11 项；6 个失败均为 APP_ENV 配置缺口（049 已修复）——test_conflict×4 / test_ledger×1 / test_me_notifications×1）；`ruff check`/`format --check` 全过；web `vue-tsc --noEmit && vite build` 过；Playwright 16 断言全过、0 控制台报错。
 
 **必须跟着改的地方**
 
@@ -272,7 +272,7 @@
 
 **0.5 Playwright 补账（040 欠账已还）**：`scripts/smoke_playwright.py`（新）驱动本机 Edge，起本地 PG + uvicorn 真后端 + vite dev，**10 条断言全过、0 条控制台报错**——admin 新建员工→列表新行；停用二次确认→状态变「停用」；teacher 直输 `/staff`→403；teacher 注销→跳登录且再登录 401「账号已停用」；改库 `end_date`=昨天→红横幅→保存写操作 402 文案→改回未来→横幅消失→保存成功。
 
-**验证**：零迁移（alembic head 仍 `0015`）；全量真库 `364 → 374 passed`（净 +10 = test_subscription.py 10 项；本地 Windows 仍 6 个**既存**事件循环 flaky——test_conflict×4 / test_ledger×1 / test_me_notifications×1，隔离跑即过）；`APP_ENV=test`（同 CI 口径）本地 `380 passed` 全过，CI Linux 四 job 全绿；`ruff check`/`format --check` 全过；web `vue-tsc --noEmit && vite build` 过。
+**验证**：零迁移（alembic head 仍 `0015`）；全量真库 `364 → 374 passed`（净 +10 = test_subscription.py 10 项；本地 Windows 仍 6 例 APP_ENV 配置缺口（049 已修复）——test_conflict×4 / test_ledger×1 / test_me_notifications×1）；`APP_ENV=test`（同 CI 口径）本地 `380 passed` 全过，CI Linux 四 job 全绿；`ruff check`/`format --check` 全过；web `vue-tsc --noEmit && vite build` 过。
 
 > 补丁 `2602cd2`：test_subscription 的到期判定从 `date.today()` 改为 `business_today()`（UTC+8）。CI 跑在 Linux UTC，与后端 UTC+8 差一天，`date.today()` 会让到期边界/续费天数断言在 UTC 时区错位；本地 Windows 是 UTC+8 所以没暴露。
 
@@ -310,7 +310,7 @@
 
 测试：`tests/test_staff_admin.py` 11 项真库——①全生命周期（建 teacher 账号→登录→停用→登录 401「账号已停用」→旧 token 调业务接口 401→重建同号 200 revived→登录新角色/姓名）②active 同号 409 ③复活保留历史（换绑新档案，旧课次 teacher_id 引用不变）④不能停用自己 ⑤停用另一个 admin 后停用最后一个 admin 403 LAST_ADMIN ⑥唯一 admin 改 role 403 ⑦registrar/teacher 调 /staff 全 403 ⑧跨租户 404 ⑨老师自助注销（错密码 401→正确 204→登录 401→token 失效）⑩唯一 admin 注销自己 403 ⑪注销后复活流程走通。
 
-**验证**：零迁移（alembic head 仍 `0015`）；全量真库 `364 passed / 6 failed`（353 → 364，净 +11；6 个失败均为既存 Windows 事件循环 flaky——test_conflict×4 / test_ledger×1 / test_me_notifications×1，隔离跑即过，CI Linux 不受影响）；`ruff check`/`format --check` 全过；web `vue-tsc --noEmit && vite build` 过。
+**验证**：零迁移（alembic head 仍 `0015`）；全量真库 `364 passed / 6 failed`（353 → 364，净 +11；6 个失败均为 APP_ENV 配置缺口（049 已修复）——test_conflict×4 / test_ledger×1 / test_me_notifications×1）；`ruff check`/`format --check` 全过；web `vue-tsc --noEmit && vite build` 过。
 
 **必须跟着改的地方**
 
@@ -346,7 +346,7 @@
 
 测试：`tests/test_platform_register.py` 6 项真库——①注册全落库 + 试用订阅 14 天 + admin 可登录 ②同名 409 ③跨机构同手机号可注册 ④手动开通回归（基础版 365 天）⑤响应不泄露 token/租户数据 ⑥缺字段/弱密码 422。
 
-**验证**：零迁移（alembic head 仍 `0015`）；全量真库 `353 passed / 6 failed`（346 → 353，净 +6；6 个失败均为既存 Windows 事件循环 flaky——test_conflict×4 / test_ledger×1 / test_me_notifications×1，隔离跑即过，CI Linux 不受影响）；`ruff check`/`format --check` 全过；web `vue-tsc --noEmit && vite build` 过。
+**验证**：零迁移（alembic head 仍 `0015`）；全量真库 `353 passed / 6 failed`（346 → 353，净 +6；6 个失败均为 APP_ENV 配置缺口（049 已修复）——test_conflict×4 / test_ledger×1 / test_me_notifications×1）；`ruff check`/`format --check` 全过；web `vue-tsc --noEmit && vite build` 过。
 
 **必须跟着改的地方**
 
@@ -383,7 +383,7 @@
 
 **红线（一行没动）**：状态机 / 幂等键 / 退避参数；扣课 / 账本 / 排课写路径；034 站内信钩子；dedupe 冲突静默忽略（`ON CONFLICT DO NOTHING`）；权限 OfficeUser 收口、跨租户 404、家长/老师 403。
 
-**验证**：本地 PostgreSQL（embedded，端口 55432）实跑——`alembic upgrade head` 到 `0015` + downgrade 往返 OK；全量真库 `346 passed / 7 failed`（335 → 353，净 +18；7 个失败均为 Windows 事件循环 flaky / 共享库测试隔离问题，隔离跑或干净库即过，CI 是 Linux + 干净库不受影响）；`ruff check` / `format --check` 全过。**1000 条模拟验收**：500 家长 × 2 条，950 走完整链（站内信兜底送达）、50 条故意走无站内信兜底的链 → exhausted，成功率 0.9500，总耗时 27.36s；再把 50 条 exhausted `retry` 重置并补上 in_app 通道重跑 → 1000 全送达。
+**验证**：本地 PostgreSQL（embedded，端口 55432）实跑——`alembic upgrade head` 到 `0015` + downgrade 往返 OK；全量真库 `346 passed / 7 failed`（335 → 353，净 +18；7 个失败均为 APP_ENV 配置缺口（049 已修复），CI Linux + 干净库不受影响）；`ruff check` / `format --check` 全过。**1000 条模拟验收**：500 家长 × 2 条，950 走完整链（站内信兜底送达）、50 条故意走无站内信兜底的链 → exhausted，成功率 0.9500，总耗时 27.36s；再把 50 条 exhausted `retry` 重置并补上 in_app 通道重跑 → 1000 全送达。
 
 **必须跟着改的地方**
 

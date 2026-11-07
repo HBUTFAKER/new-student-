@@ -1,6 +1,13 @@
 """Shared test setup: migrate a fresh CI database and provide DB/HTTP clients."""
 
 import os
+
+# 049：真库测试必须跑在 test 引擎配置（NullPool）下。pytest-asyncio 每用例一个事件
+# 循环，若按 README 的 `cp .env.example .env`（APP_ENV=local）跑，连接池会复用已关闭
+# 循环的 asyncpg 连接，稳定挂 6 个用例。setdefault 不覆盖 CI 显式注入的 APP_ENV=test，
+# 保证测试进程无论 .env 写什么都用 NullPool。必须在任何 app.* 导入之前执行。
+os.environ.setdefault("APP_ENV", "test")
+
 from collections.abc import AsyncIterator
 
 import httpx
