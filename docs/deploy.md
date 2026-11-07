@@ -184,7 +184,7 @@ Nginx 反代按 FastAPI 顶层路由前缀逐一列出（`deploy/nginx.conf`）�
 ```
 /health /auth /me /staff /admin /platform
 /students /parents /teachers /classrooms /bindings /invite-codes
-/courses /classes /schedule-rules /tenant-holidays /lessons
+/courses /classes /schedule-rules /tenant-holidays /lessons /makeup-lessons
 /org-config /reports /purchases /ledger /refunds /transfers
 /docs /redoc /openapi.json
 ```
