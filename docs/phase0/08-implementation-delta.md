@@ -1326,6 +1326,11 @@ DELETE /me/account     { password }                                     → 204
 | 签到事务 | 整批一个事务 + 每学生一层 SAVEPOINT；余额不足只回滚该学生，不写 attendance 行 | 3.5 |
 | 权限收口测试 | 任何新接口必须同步在 `tests/test_permission_matrix.py` 补对应矩阵行（角色/租户/归属三道闸门），新表必须过 `tests/test_rls_coverage.py` 的 RLS 审计；三文件进 CI 常跑 | 7.5 |
 
+### 已知债（架构备忘，不动代码）
+
+- **运行时超管连接**：API 进程内 scheduler / 通知 worker 用 `MIGRATION_DATABASE_URL`（owner 连接）做跨租户扫描。为什么必须这样——业务查询走 `app_user` + RLS，跨租户扫描会被 RLS 挡住，只有 owner 能跨租户读。代价：多实例部署时每个实例的 scheduler/worker 都会重复扫描、重复发通知。扩容前必须改为独立 worker + 分布式锁（或 LISTEN/NOTIFY）；见 `deploy/env.prod.example`「定时任务（单实例）」注释与 `docs/miniprogram-launch-checklist.md` 第四块。
+- **测试时长与并发敏感**：全量真库 425 项约 8 分钟；`test_conflict` 的并发插入用例对事件循环/连接池敏感（049 修复 2 用 `APP_ENV=test` + NullPool 后已稳定）。未来若引入 session 级事件循环、换 anyio/驱动，需重验 `test_conflict`×4 / `test_ledger`×1 / `test_me_notifications`×1 这几处。
+
 ---
 
 ## §5 变更记录（按阶段）
